@@ -12,6 +12,7 @@
     "validate-data": "node scripts/validate-data.mjs",
     "append-events": "node scripts/append-events.mjs",
     "propose-step": "node scripts/propose-step.mjs",
+    "record-gate": "node scripts/record-gate.mjs",
     "pretypecheck": "npm run gen",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run gen",
