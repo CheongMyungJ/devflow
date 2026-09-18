@@ -128,7 +128,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - 어댑터는 각 도구의 headless CLI 를 subprocess 로 실행하고, 능력(`supportsLiveMessage`, `supportsResume`)을 선언한다. CLI 옵션 지식은 어댑터 밖으로 새지 않는다.
 - 백엔드·모델은 역할별로 설정한다(Worker 와 Reviewer 를 다른 모델로 돌릴 수 있다). 실행마다 Run 기록(`schemas/run.schema.json`)에 backend, model, 버전, 세션 경로, 수행 주체(`performer` — Context 패킷만 받은 독립 세션인가, 대화 세션이 역할을 겸했는가)를 남긴다.
 - **출력은 파일로 받는다.** 역할 프롬프트가 출력 디렉터리에 `<name>.json` 을 쓰도록 지시하고, 시스템이 스키마로 검증한다. 실패 시 오류를 붙여 재시도한다. 출력 스키마는 Planner `decision`, Reviewer `reviewer-output`, Worker `worker-output` 이고 현재 형식만 받는다. 기록 스키마(GateResult, Run, Decision)는 옛 형식의 기록도 읽을 수 있게 허용을 스키마 안에 둔다 (ADR-0012).
-- 모든 역할은 출력의 `packet_gaps` 에 "받은 Context 패킷에서 부족했거나 모호했던 점" 을 적는다(없으면 빈 배열). 시스템이 그 Run 의 `packet_gaps` 로 옮긴다.
+- Context 패킷을 받는 역할(Planner, Worker, Reviewer — Intake 는 아니다)은 출력의 `packet_gaps` 에 "받은 Context 패킷에서 부족했거나 모호했던 점" 을 적는다(없으면 빈 배열). 시스템이 그 Run 의 `packet_gaps` 로 옮긴다.
 - **권한은 `access: read | write`.** 읽기 전용 실행 뒤 worktree 가 변경되었으면 실행을 무효 처리한다.
 - **세션 선택**: 같은 Step 안에서 같은 역할이 이어가는 경우(질문, 수정 요청, 개입 후 재개)는 resume 우선. 다음 Step, Reviewer, Planner 는 새 세션. resume 실패 시 Context 패킷으로 새 세션을 띄운다.
 - 실행 중 메시지를 지원하지 않는 백엔드는 "중단 → 메시지 포함해 resume" 으로 대체한다. 메시지는 어느 경우든 먼저 이벤트로 기록된다.
