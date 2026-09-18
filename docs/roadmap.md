@@ -16,7 +16,7 @@
 - [x] Store 인터페이스 + 파일 구현체 — T-0001 (Task 와 Event. 나머지 엔티티는 후속 Task)
 - [x] commands / queries 최소 집합 — T-0001 (`createTask`, `getTask`, `listTasks`)
 
-수동으로 끝까지 수행한 Task: T-0001 (1 / 2~3).
+수동으로 끝까지 수행한 Task: T-0001, T-0002 (2 / 2~3). T-0002 부터 Planner·Worker·Reviewer 를 모두 Context 패킷만 받은 별도 세션으로 실행한다. 스키마 변경은 아직 시작하지 않았다 — 두 Task 에서 모은 과부족은 `devflow-data` 의 backlog 2번에 있다.
 
 **넘어가는 기준**: 수동으로 Task 2~3개를 끝까지 수행했고, 스키마 변경이 잦아들었다.
 
