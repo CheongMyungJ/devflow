@@ -14,3 +14,6 @@ dist/
 __pycache__/
 .venv/
 *.pyc
+
+# generated from schemas/ (npm run gen)
+src/types/generated/

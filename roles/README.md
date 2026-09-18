@@ -9,4 +9,10 @@
 | [Reviewer](reviewer.md) | Step, Artifact, deterministic 결과 | GateResult 의 semantic 부분 | 읽기 | 관찰만 |
 | [Planner](planner.md) | Task, Ledger, 최근 GateResult, Skill 카탈로그 | Decision (`decision.schema.json`) | 읽기 | Step 제안 확인 단계에서 |
 
+## 공통 규칙 (ADR-0010)
+
+- 프롬프트는 도구 중립적으로 쓴다. 특정 AI 도구의 tool 이름이나 기능을 언급하지 않는다.
+- 구조화된 출력은 Context 패킷이 지정한 출력 디렉터리에 JSON 파일로 쓴다. 시스템이 스키마로 검증하고, 실패하면 오류와 함께 다시 요청한다.
+- 백엔드(Claude Code, Codex …)와 모델은 역할별로 설정한다. Reviewer 는 항상 새 세션에서 실행한다.
+
 프롬프트를 바꿀 때는 근거가 된 회고(`docs/retro/`)를 commit 메시지에 적는다.

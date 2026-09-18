@@ -31,6 +31,11 @@
     },
     "text": { "type": "string" },
     "response": { "type": "string", "description": "kind=question 인 경우 AI 의 답변." },
+    "response_source": {
+      "description": "original_session: 그 작업을 한 세션이 resume 되어 답함. reconstructed: 새 세션이 작업 기록을 바탕으로 재구성한 답변 (ADR-0010).",
+      "enum": ["original_session", "reconstructed"]
+    },
+    "response_run_id": { "type": "string" },
     "promoted_to": { "type": "string", "description": "live 지시가 Task 요구사항으로 승격된 경우 해당 AC ID." },
     "author": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" }

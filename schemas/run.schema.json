@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/run.schema.json",
+  "title": "Run",
+  "description": "AI 세션 실행 한 번의 기록. 어떤 백엔드·모델로, 어떤 경로(resume/새 세션)로 실행되었는지 남긴다 (ADR-0010).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "role", "access", "backend", "session_path", "status", "submitted_at"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^R-[0-9]{3,}$" },
+    "task_id": { "type": "string" },
+    "step_id": { "type": "string" },
+    "role": { "enum": ["intake", "worker", "reviewer", "planner"] },
+    "purpose": {
+      "description": "이 실행의 목적.",
+      "enum": ["execute", "revise", "answer_question", "review", "plan", "intake"]
+    },
+    "access": { "enum": ["read", "write"], "description": "어댑터가 각 백엔드의 권한 설정으로 매핑한다." },
+    "backend": { "type": "string", "description": "claude-code | codex | fake | …" },
+    "backend_version": { "type": "string" },
+    "model": { "type": "string" },
+    "backend_session_id": { "type": "string", "description": "백엔드의 세션 ID. 그 백엔드만 해석하는 불투명한 값이며 resume 에만 쓴다." },
+    "session_path": {
+      "description": "new: Context 패킷으로 새 세션. resumed: 이전 세션을 이어감. resume_failed_new: resume 실패 후 새 세션으로 대체.",
+      "enum": ["new", "resumed", "resume_failed_new"]
+    },
+    "resumed_from": { "type": "string", "description": "이어간(또는 이어가려 한) 이전 Run ID." },
+    "status": { "enum": ["submitted", "running", "completed", "failed", "cancelled", "invalidated"] },
+    "invalid_reason": { "type": "string", "description": "예: 읽기 전용 실행인데 worktree 가 변경됨, 출력이 스키마 검증 실패." },
+    "output_attempts": { "type": "integer", "minimum": 1, "description": "출력 파일 스키마 검증 재시도 횟수 포함." },
+    "transcript_key": { "type": "string", "description": "백엔드 원본 transcript 의 Store 키." },
+    "normalized_transcript_key": { "type": "string", "description": "정규화 이벤트(text/tool_call/tool_result/end) 의 Store 키." },
+    "system_sha": { "type": "string", "description": "실행 당시 devflow repo 의 commit SHA." },
+    "submitted_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" }
+  }
+}

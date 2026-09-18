@@ -1,0 +1,29 @@
+{
+  "name": "devflow",
+  "version": "0.0.0",
+  "private": true,
+  "description": "사람 + AI + 시스템이 함께 SW 개발 업무를 수행하는 시스템",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "gen": "node scripts/gen-types.mjs",
+    "pretypecheck": "npm run gen",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run gen",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^15.0.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "json-schema-to-typescript": "^16.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

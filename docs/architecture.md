@@ -6,7 +6,8 @@
 
 **상태는 시스템에, 판단은 AI 에, 결정권은 사람에게.**
 
-- AI 세션은 일회용이다. 모든 중요한 결과는 외부(State Store)에 저장되고, 새 세션은 Context 패킷만으로 작업을 이어갈 수 있어야 한다.
+- AI 세션은 언제든 버릴 수 있어야 한다(매번 버리라는 뜻은 아니다). 모든 중요한 결과는 외부(State Store)에 저장되고, 새 세션은 Context 패킷만으로 작업을 이어갈 수 있어야 한다.
+- 특정 AI 도구에 묶이지 않는다. Claude Code, Codex 등은 Runner 뒤의 교체 가능한 백엔드다.
 - 모든 AI 역할은 `(Context 패킷) → (스키마로 검증되는 출력)` 형태의 함수처럼 다룬다.
 - AI 는 제안하고, 시스템이 처리한다. 상태 전이는 시스템만 한다.
 
@@ -33,7 +34,7 @@
 | commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로 | in-process 함수 | HTTP API |
 | State Store | Task/Step/Artifact/Feedback/GateResult/Decision/Event 저장 | 파일 (`devflow-data` repo) | DB + object storage |
 | Orchestrator | 멱등 `advance(task_id)` | 사람이 `task run` 으로 호출 | 이벤트가 호출 |
-| Role Runner | `submit / result / stream / send_message` | 로컬 subprocess (Claude Code headless / Agent SDK) | job queue + 컨테이너 |
+| Role Runner | `submit / result / stream / sendMessage / cancel` + 백엔드 어댑터 | 로컬 subprocess (`claude-code`, `codex`, 테스트용 `fake`) | job queue + 컨테이너 |
 | Workspace | Task 별 branch/worktree | 로컬 git | 서버 clone, remote 경유 |
 
 ## 3. 엔티티
@@ -120,7 +121,21 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - Worker 는 Step 종료 시 "실행 중 받은 지시 요약" 을 출력한다. 사람은 검토 시 그중 Task 요구사항으로 올릴 것을 확인한다.
 - Reviewer 세션에는 개입하지 않는다(검증 독립성). 판정에 이견이 있으면 결과에 피드백을 남긴다.
 
-## 8. 여러 프로젝트와 동시 진행
+## 8. Runner 와 백엔드
+
+구현: TypeScript + Node.js LTS. 인터페이스는 `src/runner/types.ts`.
+
+- 어댑터는 각 도구의 headless CLI 를 subprocess 로 실행하고, 능력(`supportsLiveMessage`, `supportsResume`)을 선언한다. CLI 옵션 지식은 어댑터 밖으로 새지 않는다.
+- 백엔드·모델은 역할별로 설정한다(Worker 와 Reviewer 를 다른 모델로 돌릴 수 있다). 실행마다 Run 기록(`schemas/run.schema.json`)에 backend, model, 버전, 세션 경로를 남긴다.
+- **출력은 파일로 받는다.** 역할 프롬프트가 출력 디렉터리에 `<name>.json` 을 쓰도록 지시하고, 시스템이 스키마로 검증한다. 실패 시 오류를 붙여 재시도한다.
+- **권한은 `access: read | write`.** 읽기 전용 실행 뒤 worktree 가 변경되었으면 실행을 무효 처리한다.
+- **세션 선택**: 같은 Step 안에서 같은 역할이 이어가는 경우(질문, 수정 요청, 개입 후 재개)는 resume 우선. 다음 Step, Reviewer, Planner 는 새 세션. resume 실패 시 Context 패킷으로 새 세션을 띄운다.
+- 실행 중 메시지를 지원하지 않는 백엔드는 "중단 → 메시지 포함해 resume" 으로 대체한다. 메시지는 어느 경우든 먼저 이벤트로 기록된다.
+- Worker 는 산출물과 함께 **작업 노트**(주요 판단과 이유, 버린 방법, 미확인 사항)를 남긴다. resume 없이 이어가는 세션과 사람 검토, Planner 판단의 입력이 된다.
+- transcript 는 백엔드 원본과 정규화본(text / tool_call / tool_result / end)을 함께 저장한다.
+- repo 지침의 기준 문서는 `AGENTS.md`. `CLAUDE.md` 는 그것을 참조만 한다.
+
+## 9. 여러 프로젝트와 동시 진행
 
 - 상태는 Task 단위로 분리되어 있고 `advance(task_id)` 는 Task 별로 멱등이다. 여러 Task 를 동시에 진행할 수 있다.
 - **Task 하나 = repo 하나 = worktree 하나.** Worker 와 Gate 는 그 Task 의 worktree 안에서만 실행한다. worktree 경로는 Workspace 관리자가 실행 시점에 풀어 주며 기록하지 않는다. 여러 repo 에 걸친 작업은 Task 를 나눠 발행한다.
@@ -130,7 +145,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - 같은 repo 의 동시 수정은 막지 않는다. `advance` 가 base branch 이동을 감지해 Planner 에 알리고, Planner 가 "base 갱신 후 재검증" Step 을 만든다.
 - `task status` 는 Task 전체에 걸쳐 사람 입력을 기다리는 항목을 보여 준다. 동시 실행 수 상한은 전역 설정이다.
 
-## 9. 저장 위치
+## 10. 저장 위치
 
 | 종류 | 위치 |
 |---|---|

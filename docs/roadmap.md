@@ -10,7 +10,8 @@
 
 첫 Task: `schemas 확정 → Store 인터페이스 + 파일 구현체 → commands/queries → task status`
 
-- [ ] 구현 언어/런타임 결정 (ADR 로 기록)
+- [x] 구현 언어/런타임 결정 — TypeScript + Node LTS (ADR-0009)
+- [x] 프로젝트 골격: 스키마 → 타입 생성, Runner 인터페이스
 - [ ] 스키마 초안을 실제 Task 1~2개에 적용해 보고 수정
 - [ ] Store 인터페이스 + 파일 구현체
 - [ ] commands / queries 최소 집합
@@ -21,7 +22,10 @@
 
 범위: 사용자 1명, Task 당 repo 1개(프로젝트와 동시 진행 Task 는 여러 개 가능), Task 안에서는 Step 순차 실행, 작은 버그 수정·소규모 기능. Skill 0개.
 
-- [ ] Role Runner (로컬 subprocess): submit / result / stream / send_message
+- [ ] Role Runner + 어댑터 3종: `fake`(테스트용) → `claude-code` → `codex` (ADR-0010)
+- [ ] 출력 파일 스키마 검증·재시도, 읽기 전용 실행의 worktree 변경 검사
+- [ ] resume 경로와 새 세션 대체 경로, Run 기록
+- [ ] transcript 정규화 (`task attach` / `task log` 표시용)
 - [ ] Orchestrator: 멱등 `advance()`, 재작업·Step 수 상한
 - [ ] Gate: `.devflow.yaml` 의 명령 실행 + AI 리뷰 1회
 - [ ] CLI: `task new / run / status / review / answer / attach / log`
@@ -40,6 +44,8 @@
 - Ledger 요약 품질 개선
 - 재작업·비용 한도 조정
 - 실패 사례 기반 역할 프롬프트 개선, 프롬프트 버전 태그
+- 백엔드별·세션 경로별(resume vs 새 세션) 재작업률 비교 → 역할별 백엔드 배정, 작업 노트 품질 개선
+- 세 번째 어댑터(opencode 등)
 - 회고 초안을 `events.jsonl` 에서 자동 생성
 
 **넘어가는 기준**: 최근 10개 Task 에서 Planner Step 제안 수정률 10% 미만 → `--auto-plan` 기본값 전환.

@@ -14,6 +14,7 @@
 | [docs/roadmap.md](docs/roadmap.md) | 단계별 목표와 다음 단계로 넘어가는 기준 |
 | [docs/adr/](docs/adr/) | 결정 기록 (변경 불가, 번호순) |
 | [docs/retro/](docs/retro/) | Task 회고 — 개선 작업의 근거 |
+| [AGENTS.md](AGENTS.md) | 이 repo 에서 작업하는 AI 도구의 기준 지침 (`CLAUDE.md` 는 이를 참조) |
 | [schemas/](schemas/) | Task/Step/Feedback/GateResult/Decision/Event 의 기준 정의 |
 | [roles/](roles/) | 역할별 프롬프트 |
 | [skills/](skills/) | Step 템플릿 (운영 중 추출, 처음에는 비어 있음) |
