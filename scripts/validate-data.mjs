@@ -40,6 +40,10 @@ for (const taskId of taskIds) {
 
   for (const f of yamlFiles(join(dir, 'decisions'))) check('decision', readYaml(join(dir, 'decisions', f)), `${taskId}/decisions/${f}`);
 
+  // Task 수준의 Feedback·Run (Step 에 속하지 않는 것 — docs/design/store.md 5절 F4, F7)
+  for (const f of yamlFiles(join(dir, 'feedback'))) check('feedback', readYaml(join(dir, 'feedback', f)), `${taskId}/feedback/${f}`);
+  for (const f of yamlFiles(join(dir, 'runs'))) check('run', readYaml(join(dir, 'runs', f)), `${taskId}/runs/${f}`);
+
   const stepsDir = join(dir, 'steps');
   for (const step of existsSync(stepsDir) ? readdirSync(stepsDir) : []) {
     const sdir = join(stepsDir, step);
