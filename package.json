@@ -10,6 +10,7 @@
   "scripts": {
     "gen": "node scripts/gen-types.mjs",
     "validate-data": "node scripts/validate-data.mjs",
+    "append-events": "node scripts/append-events.mjs",
     "pretypecheck": "npm run gen",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run gen",
