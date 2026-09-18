@@ -42,7 +42,8 @@ for (const taskId of taskIds) {
 
   // Task 수준의 Feedback·Run (Step 에 속하지 않는 것 — docs/design/store.md 5절 F4, F7)
   for (const f of yamlFiles(join(dir, 'feedback'))) check('feedback', readYaml(join(dir, 'feedback', f)), `${taskId}/feedback/${f}`);
-  for (const f of yamlFiles(join(dir, 'runs'))) check('run', readYaml(join(dir, 'runs', f)), `${taskId}/runs/${f}`);
+  // runs/ 에는 Run 기록(R-NNN.yaml) 말고도 그 Run 의 출력 파일(R-NNN.output.yaml)이 있을 수 있다.
+  for (const f of yamlFiles(join(dir, 'runs')).filter((n) => /^R-\d+\.yaml$/.test(n))) check('run', readYaml(join(dir, 'runs', f)), `${taskId}/runs/${f}`);
 
   const stepsDir = join(dir, 'steps');
   for (const step of existsSync(stepsDir) ? readdirSync(stepsDir) : []) {
