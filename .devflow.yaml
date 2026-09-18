@@ -1,0 +1,15 @@
+# devflow 가 이 repo 를 대상 프로젝트로 다룰 때의 설정 (schemas/project-config.schema.json)
+commands:
+  typecheck:
+    run: npm run typecheck
+    description: 스키마에서 타입을 생성한 뒤 tsc --noEmit. 코드 변경이 있는 모든 Step 에 사용.
+  test:
+    run: npm test
+    description: vitest 전체 실행. 코드 변경이 있는 모든 Step 에 사용.
+setup:
+  - npm ci
+exclusive: false
+environment:
+  - node >= 22
+  - git
+notes_for_ai: AGENTS.md 의 제약을 지킨다. 구조를 바꾸면 docs/architecture.md 갱신과 새 ADR 이 필요하다.
