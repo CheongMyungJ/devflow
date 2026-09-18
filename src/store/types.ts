@@ -88,8 +88,8 @@ export interface Store {
    * Task 와 이벤트는 원자적으로 기록된다. 발급된 ID 는 실패해도 재사용되지 않을 수 있다 (유일하지만 연속은 아니다).
    * build 는 동기이고 부작용이 없어야 한다.
    *
-   * @throws SchemaViolationError(phase=write), InvalidChangeError, StoreBusyError, StoreUnavailableError,
-   *   CommitOutcomeUnknownError
+   * @throws SchemaViolationError(phase=write, 또는 저장된 상태가 손상되어 있으면 phase=read), InvalidChangeError,
+   *   StoreBusyError, StoreUnavailableError, CommitOutcomeUnknownError
    */
   createTask(build: (taskId: string) => { task: Task; events: [NewEvent, ...NewEvent[]] }): Promise<{ task: Task; events: Event[] }>;
 
@@ -98,8 +98,8 @@ export interface Store {
    * 같은 Task 에 대한 commit 은 직렬화되고, 이벤트의 seq 는 1부터 빈틈없이 증가한다.
    * 반영 전에 모든 writes 와 events 를 스키마로 검증한다. 하나라도 위반하면 아무것도 기록되지 않는다.
    *
-   * @throws TaskNotFoundError, ConflictError, SchemaViolationError(phase=write), InvalidChangeError, StoreBusyError,
-   *   StoreUnavailableError, CommitOutcomeUnknownError
+   * @throws TaskNotFoundError, ConflictError, SchemaViolationError(phase=write, 또는 저장된 상태가 손상되어 있으면 phase=read),
+   *   InvalidChangeError, StoreBusyError, StoreUnavailableError, CommitOutcomeUnknownError
    */
   commit(taskId: string, change: ChangeInput): Promise<CommitResult>;
 

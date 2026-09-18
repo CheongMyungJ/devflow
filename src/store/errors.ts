@@ -44,8 +44,12 @@ export class ConflictError extends StoreError {
 
 /** 제한 시간 안에 Task 에 대한 배타적 접근을 얻지 못했다. 재시도할 수 있다. */
 export class StoreBusyError extends StoreError {
-  constructor(readonly taskId: string | undefined) {
-    super(`store busy${taskId ? `: ${taskId}` : ''}`);
+  constructor(
+    readonly taskId: string | undefined,
+    /** 누가 쥐고 있는지, 사람이 무엇을 확인하고 어떻게 풀 수 있는지에 대한 안내. */
+    readonly detail?: string,
+  ) {
+    super(`store busy${taskId ? `: ${taskId}` : ''}${detail ? ` — ${detail}` : ''}`);
   }
 }
 

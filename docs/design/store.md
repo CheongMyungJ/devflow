@@ -41,7 +41,7 @@
 - 끝난 commit 의 결과만 보인다. 반쯤 반영된 상태는 보이지 않는다. 파일 구현체가 이를 어떻게 보장하는지는 2.7.
 - `get`: 없으면 `undefined`, 있는데 스키마 위반이면 `SchemaViolationError(read)`.
 - `list`: 읽지 못한 항목은 `invalid` 에 담아 돌려주고 나머지는 정상 반환한다. Task 하나가 손상되었다고 `task status` 전체가 실패하면 안 되기 때문이다.
-- 읽기도 `StoreBusyError` 를 던질 수 있다. 진행 중인 commit 이 끝나기를 기다리다 제한 시간을 넘긴 경우다(`readEvents` 도 같다).
+- 읽기도 `StoreBusyError`(진행 중인 commit 이 끝나기를 기다리다 제한 시간을 넘김)와 `StoreUnavailableError`(저장소 접근 실패)를 던질 수 있다. `readEvents` 도 같다.
 - 스냅샷 일관성은 엔티티 하나 단위다. `list` 도중 다른 Task 가 바뀔 수 있다.
 
 ### `readEvents(taskId, { afterSeq })`
@@ -63,12 +63,13 @@
     task.yaml                        # 엔티티 'task'
     events.jsonl                     # 한 줄에 이벤트 하나, LF
     .pending-<token>/commit.json     # 진행 중인 commit 의 기록 (정상 시에는 없음, git 에 넣지 않음)
+    .rollbacks                       # 되돌리기 횟수만큼의 바이트. 읽기 표식용 (git 에 넣지 않음)
 ```
 
 - 엔티티는 YAML, 이벤트는 JSON Lines. 줄바꿈은 항상 LF, 인코딩은 UTF-8.
 - `dataDir` 은 구현체 생성자 인자다. 인터페이스에는 나타나지 않는다.
 - "Task 가 존재한다" 의 정의: `events.jsonl` 에 seq 1 이 있다. 디렉터리만 있고 이벤트가 없는 것은 버려진 ID 다.
-- `.locks/` 와 `.pending-*/` 을 `devflow-data/.gitignore` 에 추가해야 한다(구현 Step 에서).
+- `.locks/`, `.pending-*/`, `.rollbacks` 를 `devflow-data/.gitignore` 에 추가해야 한다(구현 Step 에서).
 
 ### 2.2 Lock
 
@@ -80,7 +81,7 @@
 - 획득 실패 시 짧은 간격(10~50ms, 지터)으로 재시도하고 제한 시간(기본 5초)을 넘으면 `StoreBusyError`. 임계 구역은 밀리초 단위다.
 - OS 의 파일 lock API 는 플랫폼마다 달라 쓰지 않는다.
 
-**해제**: lock 디렉터리를 고유한 이름(`.locks/.tmp-<token>-released/`)으로 `rename` 한 뒤 삭제한다. 살아 있는 lock 을 남이 없애는 경로가 없으므로 경로에 있는 것은 항상 자신의 lock 이다. 경로에서 바로 삭제하지 않는 이유: `owner.json` 을 지운 뒤 디렉터리를 지우기 전의 "빈 lock 디렉터리" 가 보이면 안 되기 때문이다(POSIX 에서는 빈 디렉터리 위로의 rename 이 성공해, 뒤따르는 삭제가 새 소유자의 lock 을 지울 수 있다). 회수(아래 4단계)의 삭제도 같은 방식으로 한다.
+**해제**: lock 디렉터리를 고유한 이름(`.locks/.tmp-<token>-released-<난수>/`)으로 `rename` 한 뒤 삭제한다. 살아 있는 lock 을 남이 없애는 경로가 없으므로 경로에 있는 것은 항상 자신의 lock 이다. 경로에서 바로 삭제하지 않는 이유: `owner.json` 을 지운 뒤 디렉터리를 지우기 전의 "빈 lock 디렉터리" 가 보이면 안 되기 때문이다(POSIX 에서는 빈 디렉터리 위로의 rename 이 성공해, 뒤따르는 삭제가 새 소유자의 lock 을 지울 수 있다). 회수(아래 4단계)의 삭제도 같은 방식으로 한다.
 
 **stale 판정** — 다음을 모두 만족할 때만 stale 이다.
 - `owner.json` 의 `hostname` 과 `platform` 이 자신과 같다.
@@ -102,6 +103,7 @@ stale 이 아닌 lock 때문에 제한 시간을 넘기면 `StoreBusyError` 의 
 5. `.reap` 을 삭제하고 일반 재시도 루프로 돌아가 획득을 경쟁한다.
 
 - 3과 4 사이에 경로의 lock 이 바뀔 수 없다. 그 lock 의 주인은 죽었고(해제할 수 없다), 남의 lock 을 없앨 수 있는 것은 `.reap` 을 쥔 자신뿐이기 때문이다. v2 에 있던 "확인 후 삭제" 의 빈틈은 시간 기준 회수가 살아 있는 소유자를 대상으로 삼았기 때문에 생긴 것이다.
+- `.reap` 도 lock 과 같은 방식으로(고유 이름으로 rename 후 삭제) 해제한다.
 - 회수자가 2~5 사이에 죽으면 `.reap` 이 남는다(crash 복구 도중의 crash). `.reap` 은 자동 회수하지 않는다 — 같은 문제가 한 단계 위에서 되풀이될 뿐이다. 남은 `.reap` 은 stale lock 의 회수만 막고, 그 결과는 `StoreBusyError` 와 수동 삭제 안내다.
 - Windows 에서 다른 프로세스가 `owner.json` 을 열고 있는 순간에는 디렉터리 삭제·rename 이 `EPERM`/`EBUSY` 로 실패할 수 있다. 짧게 재시도한다.
 - 읽기는 lock 을 잡지 않고 시작한다(2.7).
@@ -117,7 +119,7 @@ stale 이 아닌 lock 때문에 제한 시간을 넘기면 `StoreBusyError` 의 
 
 lock 을 잡은 상태에서:
 
-1. `.pending-*/` 이 있으면 복구한다(2.5).
+1. `.pending-*/` 이 있으면 복구한다(2.5). 복구가 뒷정리를 마치지 못하면 디스크를 건드리지 않고 `StoreUnavailableError` 로 물러난다.
 2. `events.jsonl` 의 마지막 줄에서 `lastSeq` 를 읽는다. `change` 가 함수면 `{ lastSeq }` 로 호출한다.
 3. `expectedLastSeq` 검사 → `ConflictError`.
 4. writes 와, seq/task_id 를 부여한 events 를 전부 스키마 검증 → `SchemaViolationError`. **여기까지는 디스크를 건드리지 않는다.**
@@ -145,17 +147,18 @@ lock 을 잡은 상태에서:
 
 ### 2.5 부분 실패와 복구
 
-`.pending-*/` 이 남아 있으면 이전 commit 이 중간에 죽었거나 뒷정리를 마치지 못한 것이다. lock 을 잡은 프로세스가 **내용을 대조해** 판정한다. `events.jsonl` 에서 seq 가 `firstSeq` 이상인 부분(이하 "꼬리")을 `commit.json` 의 `lines` 와 비교한다.
+`.pending-*/` 이 남아 있으면 이전 commit 이 중간에 죽었거나 뒷정리를 마치지 못한 것이다. lock 을 잡은 프로세스가 **내용을 대조해** 판정한다. `events.jsonl` 에서 `seq = firstSeq - 1` 인 줄의 끝(LF) 다음 바이트부터 파일 끝까지(이하 "꼬리". `firstSeq = 1` 이면 파일 전체)를 `commit.json` 의 `lines` 를 이어 붙인 바이트와 비교한다.
 
 | 꼬리의 상태 | 판정 | 처리 |
 |---|---|---|
 | `lines` 전체와 정확히 같다 | 성립했다 | **앞으로 굴린다**: 남은 tmp 를 final 로 rename(이미 옮겨진 것은 건너뜀), `.pending-*/` 삭제 |
-| 비어 있다, 또는 `lines` 를 이어 붙인 것의 앞부분이다(마지막 줄이 중간에 잘린 경우 포함) | 성립하지 않았다 | **되돌린다**: 꼬리를 잘라내고 `.pending-*/` 삭제 |
-| `commit.json` 이 없거나 읽히지 않는다 | 5단계 도중 죽었다. 이벤트는 기록되지 않았다 | `.pending-*/` 삭제 |
+| 비어 있다, 또는 `lines` 를 이어 붙인 것의 앞부분이다(마지막 줄이 중간에 잘린 경우 포함) | 성립하지 않았다 | **되돌린다**: `.rollbacks` 에 1바이트를 덧붙이고(2.7 의 표식), 꼬리를 잘라내고(꼬리가 파일 전체면 파일을 지운다), `.pending-*/` 삭제 |
+| `commit.json` 이 없거나(`ENOENT`) JSON 으로 읽히지 않는다 | 5단계 도중 죽었다. 이벤트는 기록되지 않았다 | `.pending-*/` 삭제 |
+| `commit.json` 을 읽다가 그 밖의 오류가 났다 (공유 위반 등) | 알 수 없다 | 아무것도 건드리지 않고 `StoreUnavailableError` |
 | 그 밖의 모든 경우 — 꼬리에 `lines` 와 다른 내용이 있다, `lines` 뒤에 줄이 더 있다, `.pending-*/` 이 둘 이상이다 | **판정하지 않는다** | 아무것도 건드리지 않고 `SchemaViolationError(read)` 를 던진다. 메시지에 Task 와 `.pending-*/` 의 위치를 담는다. 사람이 확인해야 한다 |
 
 - 되돌리기가 잘라내는 것은 **자신의 `lines` 와 일치하는 바이트뿐**이다. 다른 프로세스가 성립시킨 이벤트를 지우는 일은 없다(v2 의 "`firstSeq` 이상의 줄을 센다" 는 방식은 이를 구별하지 못했다).
-- 마지막 경우는 설계상 생기지 않는다. 생겼다면 lock 의 가정이 깨진 것이므로(2.8) 자동으로 고치지 않는다. 그 Task 에 대한 이후의 쓰기와 lock 경로의 읽기는 사람이 정리할 때까지 같은 오류를 낸다.
+- 마지막 경우는 정상 동작과 프로세스 crash 로는 생기지 않는다. 생겼다면 lock 의 가정이 깨졌거나(2.8), 전원 장애로 파일이 손상되었거나, 사람이 파일을 고친 것이다. 어느 쪽이든 자동으로 고치지 않는다. 그 Task 에 대한 이후의 쓰기와 lock 경로의 읽기는 사람이 정리할 때까지 같은 오류를 낸다.
 - 복구는 몇 번을 수행해도 결과가 같다. 복구 도중에 죽으면 다음 접근이 같은 복구를 처음부터 다시 한다. 복구는 lock 을 쥔 프로세스만 수행한다.
 - "append-only" 는 **성립한 commit 의 이벤트**에 대한 규칙이다. 성립하지 않은 commit 의 잔여물을 잘라내는 것은 위반이 아니다. `AGENTS.md` 7번과 `devflow-data/README.md` 의 문구는 이 해석을 담고 있지 않다(5절 F10).
 
@@ -168,42 +171,55 @@ lock 을 잡은 상태에서:
 
 reader 는 lock 없이 시작하되, commit 과 겹쳤을 가능성이 있으면 결과를 버린다. (v1 의 "`.pending` 이 안 보이면 그냥 읽는다" 는 확인과 읽기 사이에 commit 이 시작될 수 있어 틀렸다.)
 
-표식은 두 가지다: **S** = `events.jsonl` 의 크기와 mtime(파일이 없으면 "없음"), **P** = `.pending-*/` 의 존재 여부.
+표식은 두 가지다.
+- **S** = (`events.jsonl` 의 크기, `.rollbacks` 의 크기). `events.jsonl` 이 없거나 크기가 0 이면 "없음" 이다. `.rollbacks` 는 되돌리기(2.5)를 할 때마다 1바이트씩 늘어나는 카운터 파일이다.
+- **P** = `.pending-*/` 의 존재 여부.
+
+S 는 **파일 시각에 의존하지 않는다.** v3 까지는 (크기, mtime) 이었으나 실측에서 mtime 전제가 깨졌다(2.9 의 I2): NTFS 에서 append 직후 mtime 이 그대로인 경우가 있고, "append 후 잘라내기" 가 원래와 같은 (크기, mtime) 을 남긴 경우가 2000회 중 863회였다. 성립한 commit 은 `events.jsonl` 의 크기를, 되돌리기는 `.rollbacks` 의 크기를 반드시 늘리고 두 값 모두 줄어들지 않으므로 같은 역할을 시각 없이 해낸다.
 
 1. 앞 표식을 **S, P 순서로** 읽는다.
-2. 대상을 읽는다(`task.yaml`, 또는 `events.jsonl` 전체).
+2. 앞 표식에서 P 가 없고 S 가 "없음" 이 아니면 대상을 읽는다(`task.yaml`, 또는 `events.jsonl` 전체). 읽다가 난 오류는 일단 보관한다.
 3. 뒤 표식을 **P, S 순서로** 읽는다.
-4. 앞뒤 모두 P 가 없고 S 가 같으면 읽은 내용을 쓴다.
-5. 아니면 짧은 백오프로 1부터 다시 한다(최대 3회). 그래도 안 되면 **lock 을 잡고** 읽는다. lock 을 잡으면 commit 이 끝나기를 기다린 셈이고, 죽은 commit 이 있었다면 복구(2.5)를 수행한 뒤 읽게 된다.
+4. 앞뒤 모두 P 가 없고 S 가 같으면 겹치지 않은 읽기다. S 가 "없음" 이면 그 Task 는 존재하지 않는다(버려진 ID 이거나 `createTask` 가 아직 메모를 쓰기 전이다): `get` 은 `undefined`, `list` 는 건너뜀, `readEvents` 는 `TaskNotFoundError`. 아니면 읽은 내용을 돌려주고, 보관한 오류가 있으면 그것이 진짜 오류이므로 던진다.
+5. 아니면 짧은 백오프로 1부터 다시 한다(최대 3회 더). 그래도 안 되면 **lock 을 잡고** 읽는다. lock 을 잡으면 commit 이 끝나기를 기다린 셈이고, 죽은 commit 이 있었다면 복구(2.5)를 수행한 뒤 읽게 된다. 복구가 뒷정리를 마치지 못하면(`forward-incomplete`) tmp 의 내용을 읽어 돌려준다(2.4).
 
-앞뒤 모두 S 가 "없음" 이고 P 가 없으면 그 Task 는 존재하지 않는다(버려진 ID 이거나 `createTask` 가 아직 5단계에 이르지 않았다). `get` 은 `undefined`, `list` 는 건너뜀, `readEvents` 는 `TaskNotFoundError` 다. 재시도하지 않는다.
+왜 충분한가: 읽는 순서 때문에 시각은 S앞 < P앞 < 읽기 < P뒤 < S뒤 다. 어떤 commit 의 `.pending` 구간(5단계에서 생겨 7단계 끝 또는 되돌리기 끝에 사라진다)이 읽기와 겹쳤는데 P앞 과 P뒤 가 모두 "없음" 이었다면, 그 구간 전체가 P앞 과 P뒤 사이에 들어 있다. 그 commit 이 성립했다면 6단계의 append 가, 되돌려졌다면 `.rollbacks` 의 증가가 S앞 과 S뒤 사이에 있으므로 S 가 달라진다. 따라서 4를 통과한 읽기는 어떤 commit 과도 겹치지 않았다. 잘린 줄, 나중에 되돌려질 이벤트, 한 commit 의 이벤트 일부, 이벤트는 있는데 엔티티는 옛것인 상태 중 어느 것도 보이지 않는다.
 
-왜 충분한가: 읽는 순서 때문에 시각은 S앞 < P앞 < 읽기 < P뒤 < S뒤 다. 어떤 commit 의 `.pending` 구간(5단계에서 생겨 7단계 끝에 사라진다)이 읽기와 겹쳤는데 P앞 과 P뒤 가 모두 "없음" 이었다면, 그 구간 전체가 P앞 과 P뒤 사이에 들어 있다. 그러면 그 commit 의 6단계(append)도 S앞 과 S뒤 사이에 있으므로 S 가 달라진다. append 후 죽고 다른 프로세스가 되돌려 크기가 원래대로 돌아온 경우는 mtime 이 잡는다. 따라서 4를 통과한 읽기는 어떤 commit 과도 겹치지 않았다. 잘린 줄, 나중에 되돌려질 이벤트, 한 commit 의 이벤트 일부, 이벤트는 있는데 엔티티는 옛것인 상태 중 어느 것도 보이지 않는다.
-
-- 2에서 파일이 rename 되는 중이라 `EPERM`/`EBUSY`/`ENOENT` 가 나면 겹친 것으로 보고 5로 간다.
+- 진행 중인 commit 이 있으면(P 가 보이면) reader 도 그것이 끝나기를 기다린다. 정상적인 commit 은 밀리초 단위라 보이지 않지만, 소유자가 lock 을 쥔 채 멈춰 있으면 읽기도 제한 시간 뒤 `StoreBusyError` 가 된다.
 - `list` 는 Task 마다 이 절차를 따로 수행한다.
-- 읽기 전용 매체(또는 쓰기 권한이 없는 사용자)에서는 5의 lock 경로를 쓸 수 없다. 이 경우 `StoreBusyError` 다. 읽기 전용 소비자는 지원 대상이 아니다.
+- 읽기 전용 매체(또는 쓰기 권한이 없는 사용자)에서는 5의 lock 경로를 쓸 수 없다. lock 을 만들지 못해 `StoreUnavailableError` 가 된다. 읽기 전용 소비자는 지원 대상이 아니다.
 
 ### 2.8 한계
 
 - **전원 장애에 대한 내구성은 보장하지 않는다.** 보장하는 것은 프로세스 crash 에 대한 원자성이다. Windows 에서는 디렉터리 fsync 가 불가능해 rename 과 삭제의 내구성이 NTFS 저널에 달려 있다. `devflow-data` 가 git repo 이고 Step 전이마다 commit 되므로(ADR-0007) 최악의 경우 마지막 git commit 으로 돌아갈 수 있다.
 - **한 호스트, 한 플랫폼에서만 쓴다.** 여러 호스트가 같은 `dataDir`(공유 폴더, 네트워크 드라이브)을 쓰거나 Windows 와 WSL 이 같은 `dataDir` 을 함께 쓰는 것은 지원하지 않는다. 서로의 lock 을 빼앗지는 않지만(2.2), 상대가 죽으며 남긴 lock 은 수동으로 지워야 한다. 여러 호스트가 필요해지는 시점이 DB 구현체로 넘어갈 시점이다(roadmap 4단계).
 - **사람이 lock 을 지워야 하는 경우가 있다**: 죽은 소유자의 pid 가 재사용된 경우, 회수 도중 죽어 `.reap` 이 남은 경우. 둘 다 `StoreBusyError` 의 메시지가 안내한다.
-- **두 프로세스가 동시에 lock 을 쥐게 되는 경로는 설계상 없다.** 남는 것은 설계 밖의 경로다: 사람이 살아 있는 프로세스의 lock 을 지운 경우, hostname 과 platform 이 같은데 pid 공간이 다른 환경(같은 호스트의 컨테이너가 hostname 을 공유하도록 설정된 경우 등). 이때의 방어선은 세 겹이다 — token 이 들어간 `.pending`(서로의 메모를 덮어쓰지 않는다), 내용을 대조하는 복구(남의 이벤트를 자르거나 확정하지 않고 오류로 멈춘다), `readEvents` 의 seq 연속성 검사. 이 방어선은 피해를 **드러내는** 것이지 막는 것이 아니다.
+- **두 프로세스가 동시에 lock 을 쥐게 되는 경로는 설계상 없다.** 남는 것은 설계 밖의 경로다: 사람이 살아 있는 프로세스의 lock 을 지운 경우, hostname 과 platform 이 같은데 pid 공간이 다른 환경(같은 Windows 호스트의 서로 다른 WSL2 배포판, hostname 을 공유하도록 설정된 컨테이너 등). 이때의 방어선은 세 겹이다 — token 이 들어간 `.pending`(서로의 메모를 덮어쓰지 않는다), 내용을 대조하는 복구(남의 이벤트를 자르거나 확정하지 않고 오류로 멈춘다), `readEvents` 의 seq 연속성 검사. 이 방어선은 피해를 **드러내는** 것이지 막는 것이 아니다.
 
-### 2.9 구현 Step 에서 확정·확인할 것
+### 2.9 구현에서 확정·확인한 것
 
-설계로는 정했으나 실측이나 테스트가 필요한 것, 그리고 구현하면서 정하면 되는 것이다.
+step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Windows 11, NTFS, Node 22.
 
-| # | 항목 |
-|---|---|
-| I1 | Windows(NTFS)에서 비어 있지 않은 디렉터리 위로의 디렉터리 `rename` 이 실패하는지, 어떤 오류 코드인지(2.2 획득의 전제). 성립하지 않으면 대안을 설계 노트에 반영한다 |
-| I2 | append 와 잘라내기 직후 `fs.stat` 이 바뀐 크기와 mtime 을 즉시 돌려주는지(2.7 의 전제). NTFS 의 mtime 해상도 안에서 "append 후 되돌리기" 가 같은 mtime 을 남길 수 있는지. 믿을 수 없다면 Task 별 commit 카운터 파일로 S 를 대체한다 |
-| I3 | 단계별 실패(2.4 의 표)와 복구(2.5 의 표)의 각 경우를 재현하는 테스트 방법 — 파일 시스템 호출에 장애를 주입할 수 있는 구조 |
-| I4 | 동시성 테스트: 여러 프로세스(스레드가 아니라)가 같은 Task 에 commit, 동시에 `createTask` (AC3, AC4) |
-| I5 | 재시도 간격, 제한 시간, rename 재시도 횟수의 기본값과 설정 방법 |
-| I6 | `CommitOutcomeUnknownError` 를 받은 호출자의 확인 규약: `readEvents({ afterSeq: firstSeq - 1 })` 의 결과가 자신이 보낸 이벤트와 내용이 같으면 성립. commands 계층의 규약으로 문서화한다. 이벤트에 commit 식별자가 없어 내용 비교에 의존한다는 점은 5절 F12 |
-| I7 | `StoreBusyError` 메시지의 안내 문구(무엇을 확인하고 무엇을 지우는지) |
+| # | 항목 | 결과 |
+|---|---|---|
+| I1 | 기존 디렉터리 위로의 디렉터리 `rename` | **성립.** Windows 에서는 대상이 비어 있든 아니든 `EPERM` 으로 실패한다(POSIX 는 비어 있지 않으면 `ENOTEMPTY`). `EPERM` 은 백신 간섭 같은 일시적 오류와 코드가 같으므로, 획득 실패 뒤 `owner.json` 을 읽어 구별한다: 소유자가 있으면 "쥐고 있다", lock 디렉터리가 없으면 일시적 오류이거나 방금 해제된 것이므로 곧바로 재시도한다 |
+| I2 | 파일 시각 기반 표식 | **불성립 → 교체.** 2.7 의 S 를 (`events.jsonl` 크기, `.rollbacks` 크기)로 바꿨다 |
+| — | `process.kill(pid, 0)` | **성립.** 살아 있으면 성공, 끝났으면 `ESRCH`. 부작용 없음 |
+| I3 | 장애 재현 방법 | 파일 시스템 연산을 `FileOps` 인터페이스 뒤에 두었다. I/O 오류는 테스트가 `FileOps` 를 감싸 주입하고, crash 는 **실제 자식 프로세스를 그 지점에서 `process.exit` 시켜** 만든다(lock 과 `.pending` 이 남은 채 pid 가 죽는다). 2.4 와 2.5 의 표의 각 행에 테스트가 있다 |
+| I4 | 동시성 테스트 | 별도 프로세스 6개를 barrier 파일로 동시에 출발시킨다. 같은 Task 에 90개의 commit, 동시 `createTask` 48개. 이벤트가 프로세스 간에 섞였는지도 확인해 경합이 실제로 일어났음을 보인다 |
+| I5 | 기본값 | lock 제한 시간 5초, 획득 재시도 간격 10~50ms(방금 해제된 경우 1ms), rename/삭제의 일시적 오류 재시도는 지수 백오프로 총 1초. `FileStoreOptions` 의 `lockTimeoutMs`, `transientRetryMs` 로 바꾼다 |
+| I6 | `CommitOutcomeUnknownError` 뒤의 확인 규약 | 오류의 `firstSeq` 로 `readEvents({ afterSeq: firstSeq - 1 })` 를 읽어 자신이 보낸 이벤트와 내용이 같으면 성립한 것이다. commands 계층에서 문서화한다(다음 Step). 식별자 부재는 5절 F12 |
+| I7 | `StoreBusyError` 의 안내 | `detail` 에 소유자의 pid 와 획득 시각, 지워야 할 경로(`.lock`, 남아 있다면 `.reap`), "다른 devflow 프로세스가 실행 중이 아닌 것을 확인한 뒤" 라는 조건을 담는다 |
+
+구현하며 추가로 정한 것:
+
+- **꼬리의 정의(2.5)**: `seq = firstSeq - 1` 인 줄의 LF 다음 바이트부터 파일 끝까지. `firstSeq = 1` 이면 0부터. 잘린 마지막 줄은 seq 를 읽을 수 없으므로 seq 가 아닌 바이트 위치로 정의해야 한다. 이것을 `lines` 를 이어 붙인 UTF-8 바이트와 비교한다.
+- **`commit.json` 을 읽지 못하는 경우의 구분(2.5)**: "없음(`ENOENT`)" 과 "JSON 으로 읽히지 않음" 만 메모 쓰기 도중의 crash 로 보고 버린다. 그 밖의 읽기 오류(Windows 의 공유 위반 등)는 아무것도 건드리지 않고 `StoreUnavailableError` 다. 같은 것으로 처리하면 성립한 commit 의 엔티티 쓰기를 조용히 잃는다.
+- **이전 commit 의 뒷정리가 끝나지 않으면 다음 commit 을 쌓지 않는다(2.4 의 1단계)**: 디스크를 건드리지 않고 `StoreUnavailableError` 로 물러난다. 계속 진행하면 `.pending` 이 둘이 되어 lock 의 가정이 깨지지 않았는데도 2.5 의 "판정하지 않는다" 에 도달한다.
+- **`createTask` 가 되돌려지면 빈 `events.jsonl` 을 지운다.** 남더라도 크기 0 은 "없음" 으로 취급한다(2.7).
+- **`.reap` 도 lock 과 같은 방식으로(고유 이름으로 rename 후 삭제) 해제한다.**
+- **해제에 실패한 lock 은 프로세스가 기억한다.** 오래 사는 프로세스에서는 자신의 pid 가 살아 있어 stale 로 회수되지 않으므로, 다음 획득 때 경로의 lock 이 자신이 해제하지 못한 token 이면 직접 정리한다.
+- **찌꺼기 청소**: 획득 준비용·해제용 임시 디렉터리(`.locks/.tmp-*`)가 crash 로 남으면, 프로세스마다 첫 획득 때 소유자가 죽은 것만 지운다.
 
 ## 3. 나머지 엔티티의 추가
 
@@ -255,7 +271,7 @@ reader 는 lock 없이 시작하되, commit 과 겹쳤을 가능성이 있으면
 | F5 | `Event.data` 의 이벤트 종류별 내용이 정의되어 있지 않다 (`step.status_changed` 의 from/to 등) | Orchestrator 를 만들 때 종류별 payload 표를 정하고 스키마에 `if/then` 으로 추가. `task.created` 는 payload 가 필요 없어 이번 Task 에는 영향 없음 |
 | F6 | `Event.actor` 형식이 description 에만 있고 강제되지 않는다 | pattern 추가: `^(human:.+\|system\|role:(intake\|worker\|reviewer\|planner))$` |
 | F7 | Run 의 파일 위치가 README 에는 `runs/R-001.transcript.jsonl` 만 있고 Run 기록 자체의 위치가 없다. Step 에 속하지 않는 Run(Intake, Planner)의 위치도 없다 | `runs/<id>.yaml` 추가, Task 수준 `T-NNNN/runs/` 추가 |
-| F8 | `.locks/`, `.pending-*/` 이 `devflow-data/.gitignore` 에 없다 | 구현 Step 에서 추가 |
+| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | 구현 Step 에서 추가 |
 | F9 | 대상 repo 안에 있는 문서 산출물(이 문서가 그 예)을 Artifact 로 어떻게 표현할지 모호하다. `type: document` 인데 내용은 `content_key` 가 아니라 `code`(commit 참조)로 가리켰다 | Artifact 에 "내용의 위치" 를 명시하는 필드(`stored_in: store \| repo`)와 repo 내 경로 목록을 추가 |
 | F10 | `AGENTS.md` 7번과 `devflow-data/README.md` 의 "이벤트를 수정·삭제하지 않는다" 는 성립하지 않은 commit 의 잔여물을 잘라내는 복구(2.5)와 글자 그대로는 충돌한다 | 두 문서의 문구를 "성립한 commit 의 이벤트" 로 고친다 |
 | F11 | GateResult 의 `verdict` 가 pass/fail 뿐이라 "통과했지만 구현 전에 고쳐야 할 결함이 있다"(G-001 이 그랬다)를 표현하지 못한다. 사람이 comments 를 다 읽어야 알 수 있다 | `comments` 를 `{ severity: defect \| risk \| note, text }` 로 구조화하거나 verdict 에 `pass_with_concerns` 추가 |
