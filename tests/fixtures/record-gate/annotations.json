@@ -1,0 +1,11 @@
+[
+  {
+    "source": "worker",
+    "text": "Gate 와 병행해 Worker 가 실측한 결과: 2000회 중 863회에서 조건 I2 가 성립하지 않았다 — Reviewer 의 근거(\"항상 성립\")와 어긋난다.",
+    "ref": "blob:T-9001/step-001/R-001.probe"
+  },
+  {
+    "source": "system",
+    "text": "작업 노트가 리뷰와 병행해 작성되어 Reviewer 의 Context 패킷에 들어가지 못했다.\n이 Gate 의 판정은 작업 노트를 보지 않은 것이다."
+  }
+]

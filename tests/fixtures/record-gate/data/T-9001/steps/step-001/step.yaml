@@ -1,0 +1,25 @@
+id: step-001
+task_id: T-9001
+skill: null
+goal: |
+  예시 문서를 쓴다.
+scope:
+  include:
+    - docs/example.md
+inputs:
+  - task.brief
+  - task.ledger
+outputs:
+  - name: example-doc
+    type: document
+done_when:
+  - 예시 문서가 있다
+  - 예시 문서에 "확인하지 못한 것" 절이 있다
+verify:
+  deterministic:
+    - name: typecheck
+      run: "@typecheck"
+  semantic:
+    - 문서의 서술이 코드와 어긋나지 않는가
+approval: required
+status: checking
