@@ -43,5 +43,11 @@
 
 `schemas/decision.schema.json` 을 만족하는 Decision. 시스템이 스키마로 검증하고, 맞지 않으면 받아들이지 않는다. 틀리기 쉬운 것:
 
-- 필수 필드는 `id`, `task_id`, `action`, `rationale`, `created_at` 과 action 에 딸린 필드다 — `next_step` → `next_step`, `rework` → `rework`, `ask_human` → `question`, `done` → `completion`. 정의되지 않은 필드를 더하지 않는다.
+- 필수 필드는 `id`, `task_id`, `action`, `rationale`, `created_at`(UTC 의 date-time, 예: `2026-01-01T00:00:00Z`)과 action 에 딸린 필드 하나다. 정의되지 않은 필드를 더하지 않는다(딸린 필드의 안쪽에도).
+  - `next_step` → `next_step`. Freeform 이면 `{step: {…}}`, Skill 이면 `{skill, params}`(`skill` 은 `name@version`, `params` 는 객체) — 둘 중 하나만 쓴다. Step 의 필드를 `next_step` 바로 아래에 늘어놓지 않는다.
+  - `step` 은 Step 정의(`schemas/step.schema.json`)에서 `id`, `task_id`, `status` 를 뺀 것이고 `goal`, `scope`, `inputs`, `outputs`, `done_when`, `verify`, `approval` 은 필수다. 모양은 그 스키마가 기준이다: `scope` 는 `{include, exclude}`(문자열의 배열), `inputs` 는 참조 문자열의 배열(`task.brief`, `task.ledger`, `artifact://<task>/<step>/<name>@v<N>` 등 — 서술 문장이나 경로를 쓰지 않는다), `outputs` 는 `{name, type, description}` 의 배열(`type` 은 `document` | `code_change` | `data`), `done_when` 은 문장의 배열, `verify` 는 `{deterministic: [{name, run}], semantic: [질문]}`, `approval` 은 `required` | `optional`.
+  - `rework` → `rework`: `{step_id, instructions}`.
+  - `ask_human` → `question`: `{text, options}` — `options` 는 문자열의 배열이고 없으면 생략한다.
+  - `done` → `completion`: AC 마다 `{ac_id, evidence}` 의 배열.
+  - `abort` 에는 딸린 필드가 없다.
 - `packet_gaps` 를 항상 적는다 — 받은 Context 패킷에서 부족했거나 모호했던 점의 문장 배열, 부족한 것이 없었으면 빈 배열. `rationale` 에 섞어 쓰지 않는다. 로컬 경로를 쓰지 않는다.
