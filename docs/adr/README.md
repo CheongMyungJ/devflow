@@ -32,3 +32,4 @@
 | [0008](0008-multi-project-and-concurrent-tasks.md) | 여러 프로젝트, 동시 진행 Task |
 | [0009](0009-typescript-node.md) | TypeScript + Node.js LTS |
 | [0010](0010-backend-neutral-runner.md) | 백엔드 중립 Runner, resume 은 최적화로만 |
+| [0011](0011-file-store-decisions.md) | Store 파일 구현체의 결정 (ADR-0008 결정 4 의 일부를 대체) |

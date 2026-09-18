@@ -1,0 +1,228 @@
+// Task 별 lock (docs/design/store.md 2.2).
+// 원칙: 살아 있는 프로세스의 lock 은 절대 빼앗지 않는다. 틀릴 때는 "조용히 깨지는" 쪽이 아니라 "시끄럽게 잠기는" 쪽으로 틀린다.
+
+import { randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
+import { StoreBusyError, StoreUnavailableError } from '../errors.js';
+import { codeOf, type FileOps, retryTransient, sleep } from './fs-ops.js';
+
+interface Owner {
+  pid: number;
+  hostname: string;
+  platform: string;
+  token: string;
+  acquiredAt: string;
+}
+
+type Inspection = { state: 'gone' } | { state: 'unreadable' } | { state: 'owned'; owner: Owner };
+
+export interface LockOptions {
+  timeoutMs: number;
+  /** 해제·회수의 rename/삭제가 일시적 오류를 만났을 때 재시도하는 총 시간. */
+  transientRetryMs: number;
+}
+
+export interface Lock {
+  readonly token: string;
+  release(): Promise<void>;
+}
+
+/** 이미 있는 디렉터리 위로의 rename 이 실패했을 때의 오류 코드 (Windows: EPERM, POSIX: ENOTEMPTY/EEXIST). */
+const OCCUPIED = new Set(['EPERM', 'EEXIST', 'ENOTEMPTY', 'EACCES', 'EBUSY']);
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM 은 "있지만 신호를 보낼 권한이 없다" 이므로 살아 있는 것이다.
+    return codeOf(error) !== 'ESRCH';
+  }
+}
+
+export class LockManager {
+  /** 해제에 실패해 경로에 남아 있는 이 프로세스의 lock. 다음 획득 때 자신의 것으로 알아보고 정리한다. */
+  private readonly unreleased = new Set<string>();
+  private swept = false;
+
+  constructor(
+    private readonly ops: FileOps,
+    private readonly locksDir: string,
+    private readonly options: LockOptions,
+  ) {}
+
+  async acquire(taskId: string): Promise<Lock> {
+    const lockPath = join(this.locksDir, `${taskId}.lock`);
+    const token = randomBytes(12).toString('hex');
+    const deadline = Date.now() + this.options.timeoutMs;
+    let prepared: string | undefined;
+    let last: Inspection = { state: 'gone' };
+
+    try {
+      await this.ops.mkdir(this.locksDir, true);
+      await this.sweepOnce();
+      prepared = await this.prepare(token);
+
+      for (;;) {
+        if (await this.tryRenameInto(prepared, lockPath)) {
+          return { token, release: () => this.release(lockPath, token) };
+        }
+        last = await this.inspect(lockPath);
+        // 모든 반복이 이 검사를 거친다. 길을 트는 일은 검사 뒤에 하므로, 길을 텄다면 반드시 한 번 더 획득을 시도한다.
+        if (Date.now() >= deadline) break;
+        let cleared = false;
+        if (last.state === 'owned') {
+          if (this.unreleased.has(last.owner.token)) cleared = await this.clearUnreleased(lockPath, last.owner.token);
+          else if (this.isStale(last.owner)) cleared = await this.reap(taskId, lockPath, last.owner.token);
+        }
+        // 'gone' 은 방금 해제된 것이므로 거의 바로 다시 시도한다.
+        if (!cleared) await sleep(last.state === 'gone' ? 1 : 10 + Math.random() * 40);
+      }
+      throw new StoreBusyError(taskId, await this.describe(taskId, lockPath, last));
+    } catch (error) {
+      if (prepared) await this.ops.remove(prepared).catch(() => undefined);
+      throw error instanceof StoreBusyError ? error : new StoreUnavailableError(`cannot acquire lock for ${taskId}`, { cause: error });
+    }
+  }
+
+  /**
+   * 이 프로세스가 해제하지 못한 자신의 lock 을 치운다. 같은 프로세스의 획득자 여럿이 동시에 시도할 수 있으므로
+   * 프로세스 안에서 직렬화하고, 그 안에서 token 을 다시 확인한다(다른 획득자가 이미 치우고 새 lock 을 쥐었을 수 있다).
+   */
+  private clearUnreleased(lockPath: string, token: string): Promise<boolean> {
+    const run = this.clearing.then(async () => {
+      const now = await this.inspect(lockPath);
+      if (now.state !== 'owned' || now.owner.token !== token) return true;
+      try {
+        await this.removeLock(lockPath, token);
+        this.unreleased.delete(token);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    this.clearing = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private clearing: Promise<void> = Promise.resolve();
+
+  /** owner.json 이 든 디렉터리를 미리 만들어 둔다. lock 은 항상 owner.json 과 함께 나타난다. */
+  private async prepare(token: string): Promise<string> {
+    const dir = join(this.locksDir, `.tmp-${token}`);
+    const owner: Owner = { pid: process.pid, hostname: hostname(), platform: process.platform, token, acquiredAt: new Date().toISOString() };
+    await this.ops.mkdir(dir, false);
+    try {
+      await this.ops.writeFile(join(dir, 'owner.json'), JSON.stringify(owner));
+    } catch (error) {
+      // 빈 준비용 디렉터리는 청소 대상이 아니므로(살아 있는 프로세스의 것일 수 있다) 여기서 스스로 치운다.
+      await this.ops.remove(dir).catch(() => undefined);
+      throw error;
+    }
+    return dir;
+  }
+
+  private async tryRenameInto(prepared: string, target: string): Promise<boolean> {
+    try {
+      await this.ops.rename(prepared, target);
+      return true;
+    } catch (error) {
+      if (OCCUPIED.has(codeOf(error) ?? '')) return false;
+      throw error;
+    }
+  }
+
+  private async inspect(lockPath: string): Promise<Inspection> {
+    let raw: Buffer;
+    try {
+      raw = await this.ops.readFile(join(lockPath, 'owner.json'));
+    } catch (error) {
+      // lock 디렉터리째 사라졌으면 방금 해제된 것이다. 그 밖에는 읽을 수 없는 상태로 본다(빼앗지 않는다).
+      if (codeOf(error) === 'ENOENT' && (await this.ops.readdir(lockPath)).length === 0) return { state: 'gone' };
+      return { state: 'unreadable' };
+    }
+    try {
+      const owner = JSON.parse(raw.toString('utf8')) as Owner;
+      if (typeof owner.pid === 'number' && typeof owner.token === 'string') return { state: 'owned', owner };
+    } catch {
+      // 아래에서 unreadable 로 처리한다.
+    }
+    return { state: 'unreadable' };
+  }
+
+  private isStale(owner: Owner): boolean {
+    return owner.hostname === hostname() && owner.platform === process.platform && !pidAlive(owner.pid);
+  }
+
+  /**
+   * stale lock 을 없앤다. 회수 전용 lock 을 쥔 상태에서 token 을 다시 확인한 뒤에만 없앤다.
+   * 회수 전용 lock 을 얻지 못했으면 false (다른 프로세스가 회수 중이거나, 회수 도중 죽어 .reap 이 남았다. 자동으로 풀지 않는다).
+   */
+  private async reap(taskId: string, lockPath: string, observedToken: string): Promise<boolean> {
+    const reapPath = join(this.locksDir, `${taskId}.reap`);
+    const token = randomBytes(12).toString('hex');
+    const prepared = await this.prepare(token);
+    if (!(await this.tryRenameInto(prepared, reapPath))) {
+      await this.ops.remove(prepared).catch(() => undefined);
+      return false;
+    }
+    try {
+      const now = await this.inspect(lockPath);
+      if (now.state === 'owned' && now.owner.token === observedToken && this.isStale(now.owner)) {
+        try {
+          await this.removeLock(lockPath, observedToken);
+        } catch {
+          // 다른 프로그램이 lock 디렉터리를 붙들고 있다. 자신의 lock 을 정리하지 못한 경우(clearUnreleased)와 같게
+          // 길을 트지 못한 것으로 보고, 제한 시간 뒤 StoreBusyError 와 안내로 끝나게 한다.
+          return false;
+        }
+      }
+      return true;
+    } finally {
+      await this.removeLock(reapPath, token).catch(() => undefined);
+    }
+  }
+
+  /** 경로에서 바로 지우지 않는다. 고유한 이름으로 옮긴 뒤 지워 "빈 lock 디렉터리" 가 보이는 순간을 없앤다. */
+  private async removeLock(path: string, token: string): Promise<void> {
+    const away = join(this.locksDir, `.tmp-${token}-released-${randomBytes(4).toString('hex')}`);
+    await retryTransient(this.options.transientRetryMs, () => this.ops.rename(path, away));
+    await this.ops.remove(away).catch(() => undefined);
+  }
+
+  private async release(lockPath: string, token: string): Promise<void> {
+    try {
+      await this.removeLock(lockPath, token);
+      this.unreleased.delete(token);
+    } catch {
+      // 해제하지 못했다. 이 프로세스가 사는 동안에는 stale 이 되지 않으므로 기억해 두었다가 다음 획득 때 정리한다.
+      this.unreleased.add(token);
+    }
+  }
+
+  /** 죽은 프로세스가 남긴 준비용·해제용 찌꺼기를 프로세스당 한 번 치운다. */
+  private async sweepOnce(): Promise<void> {
+    if (this.swept) return;
+    this.swept = true;
+    for (const name of await this.ops.readdir(this.locksDir)) {
+      if (!name.startsWith('.tmp-')) continue;
+      const dir = join(this.locksDir, name);
+      const found = await this.inspect(dir);
+      // 소유자가 죽은 것이 확인된 것만 지운다. owner.json 이 아직 없는 디렉터리는 살아 있는 프로세스가
+      // 막 준비하는 중일 수 있으므로 건드리지 않는다(그 상태로 죽은 것은 무해한 빈 디렉터리로 남는다).
+      if (found.state !== 'owned' || !this.isStale(found.owner)) continue;
+      await this.ops.remove(dir).catch(() => undefined);
+    }
+  }
+
+  private async describe(taskId: string, lockPath: string, last: Inspection): Promise<string> {
+    const holder = last.state === 'owned' ? `pid ${last.owner.pid} 가 ${last.owner.acquiredAt} 부터 쥐고 있다` : 'lock 의 소유자 정보를 읽을 수 없다';
+    const reapLeft = (await this.ops.readdir(join(this.locksDir, `${taskId}.reap`))).length > 0;
+    const targets = [lockPath, ...(reapLeft ? [join(this.locksDir, `${taskId}.reap`)] : [])].join(', ');
+    return `${holder}. 다른 devflow 프로세스가 실행 중이 아닌 것을 확인한 뒤 다음을 삭제하면 풀린다: ${targets}`;
+  }
+}

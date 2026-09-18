@@ -10,7 +10,7 @@
 ## 구조 제약 (서버 확장성을 위한 경계 — ADR-0005)
 
 1. CLI/UI 코드는 `commands.*` / `queries.*` 함수만 호출한다. State Store 나 데이터 파일을 직접 읽고 쓰지 않는다.
-2. State Store 는 인터페이스 뒤에 둔다. 파일 경로·파일 포맷 지식은 파일 구현체 밖으로 새지 않는다.
+2. State Store 는 인터페이스 뒤에 둔다. 파일 경로·파일 포맷 지식은 파일 구현체(`src/store/file/`) 밖으로 새지 않는다. commands/queries 는 파일 구현체를 import 하지 않는다(`tests/architecture.test.ts`). Store 인스턴스는 프로세스마다 하나만 만들어 Context 로 넘긴다. Store 를 호출하는 쪽의 규약은 `docs/design/commands.md`.
 3. 상태 기록에 절대 경로·로컬 경로를 저장하지 않는다. 문서는 `artifact://<task>/<step>/<name>@v<N>`, 코드는 `repo + branch + commit SHA` 로 참조한다.
 4. AI 세션은 Runner 인터페이스(`src/runner/types.ts`)로만 실행한다. 특정 백엔드의 CLI 옵션·출력 형식 지식은 해당 어댑터 밖으로 새지 않는다. Orchestrator 는 동기 실행을 가정하지 않는다.
 5. `advance(task_id)` 는 멱등이어야 한다. 몇 번 호출해도 결과가 같아야 한다.
@@ -18,7 +18,7 @@
 ## 동작 제약
 
 6. 상태 전이는 시스템(Orchestrator)만 한다. AI 출력은 제안이며, 스키마 검증을 통과해야 반영된다.
-7. 이벤트는 append-only. 기존 이벤트를 수정·삭제하지 않는다.
+7. 이벤트는 append-only. 성립한 commit 의 이벤트를 수정·삭제하지 않는다. (commit 도중 죽어 성립하지 못한 commit 의 잔여물을 Store 의 복구가 잘라내는 것은 여기에 해당하지 않는다 — ADR-0011, `docs/design/store.md` 2.5)
 8. 승인은 항상 특정 Artifact 버전을 명시한다.
 9. 사람이 세션에 보내는 메시지는 이벤트로 기록된 뒤 세션에 전달된다 (ADR-0006).
 10. Step 의 `verify` 는 deterministic/semantic 중 하나 이상 필수. deterministic 이 비어 있으면 approval 은 `required` 로 강제한다 (ADR-0003).
