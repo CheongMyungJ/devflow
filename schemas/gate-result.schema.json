@@ -47,11 +47,57 @@
       }
     },
     "comments": {
-      "description": "판정과 별개로 사람·Planner 에게 전달할 의견 (예: 미확인 케이스).",
+      "description": "Reviewer 의 지적. 판정과 별개로 사람·Planner 에게 전달할 것(결함, 위험, 미확인 케이스, 의견)을 담는다. Reviewer 가 아닌 출처의 정보는 여기에 넣지 않고 annotations 에 넣는다. 배열 전체가 아래 두 형식 중 하나여야 하며 한 배열에 섞어 쓸 수 없다.",
+      "anyOf": [
+        {
+          "description": "현재 형식. 지적마다 severity, class, text 를 갖는다.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        },
+        {
+          "description": "옛 형식(구조화 이전의 기록). 지적이 문장 하나이고 severity 와 class 는 '[risk / B] …' 처럼 문장 앞머리에 관례로 적었다(그 틀에 맞지 않는 문장도 있다). 이미 기록된 Gate 를 고치지 않고 읽기 위해서만 허용한다. 새 Gate 는 이 형식으로 쓰지 않는다 — Reviewer 의 출력을 받는 reviewer-output.schema.json 은 이 형식을 받지 않는다.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      ]
+    },
+    "annotations": {
+      "description": "Reviewer 가 아닌 출처가 이 Gate 결과에 덧붙인 정보. Reviewer 의 판정(verdict, checks, done_when)과 지적(comments)에 반영되지 않은 것이며, Reviewer 의 출력에는 이 자리가 없고 시스템이 기록한다. 예: Gate 와 병행해 Worker 가 실측한 결과가 Reviewer 의 근거와 어긋남, Reviewer 의 Context 패킷에 빠져 있던 자료에 대한 시스템의 설명. 없으면 필드를 생략한다(옛 기록은 이런 정보를 comments 에 '[시스템 기록 — …]' 문장으로 넣었다).",
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "text"],
+        "properties": {
+          "source": {
+            "description": "정보의 출처. system: 시스템(Orchestrator)이 관찰하거나 설명한 것. worker: Worker 가 실행·실측해 얻은 것(기록은 시스템이 한다).",
+            "enum": ["system", "worker"]
+          },
+          "text": { "type": "string", "minLength": 1, "description": "내용. 사람·Planner 가 Reviewer 의 판정을 읽을 때 함께 알아야 할 것." },
+          "ref": { "type": "string", "description": "근거가 되는 기록의 참조 (예: 'blob:T-0001/step-001/R-005.probe', 'artifact://…@vN', Run ID). 로컬 경로를 쓰지 않는다." }
+        }
+      }
     },
     "reviewer_run_id": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "finding": {
+      "description": "Reviewer 의 지적 하나.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "class", "text"],
+      "properties": {
+        "severity": {
+          "description": "지적의 성격. defect: 산출물이 Step 의 목표·완료 조건·제약에 어긋난다. risk: 지금 어긋난 것은 아니지만 문제가 될 수 있다(미확인 케이스, 깨지기 쉬운 전제). note: 그 밖의 관찰·의견.",
+          "enum": ["defect", "risk", "note"]
+        },
+        "class": {
+          "description": "요구하는 처리. A: 승인 전에 수정해야 한다. B: 승인해도 되지만 후속(뒤의 Step 또는 다른 Task)에서 다뤄야 한다. C: 의견 — 조치를 요구하지 않는다. A 가 하나라도 있으면 verdict 는 fail 이어야 한다(이 규칙은 스키마가 아니라 Reviewer 의 역할 지침이 지킨다).",
+          "enum": ["A", "B", "C"]
+        },
+        "text": { "type": "string", "minLength": 1, "description": "지적의 내용. 산출물의 구체적 위치와 근거를 가리킨다. severity 와 class 를 문장 앞머리에 되풀이해 적지 않는다." }
+      }
+    }
   }
 }

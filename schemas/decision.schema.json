@@ -57,6 +57,11 @@
       }
     },
     "human_edit": { "type": "string", "description": "Step 제안 확인 단계에서 사람이 수정했다면 그 내용 요약 (회고용)." },
+    "packet_gaps": {
+      "description": "Planner 가 보고한 '받은 Context 패킷에서 부족했거나 모호했던 점'. Planner 의 출력 파일이 곧 Decision 이므로 Planner 는 여기에 적는다(rationale 에 섞어 쓰지 않는다). 시스템은 이 값을 그 Run(planner_run_id)의 packet_gaps 로도 옮긴다 — 역할을 가로질러 볼 때의 기준은 Run 이다. 빈 배열은 '부족한 것이 없었다' 는 보고다. 필드가 없으면 보고하지 않은 것이다(이 필드가 생기기 전의 옛 기록). 새 Decision 에는 항상 적는다.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "description": "부족했거나 모호했던 점 하나. 무엇이 없었거나 모호했고 그래서 어떻게 했는지를 문장으로 쓴다. 로컬 경로를 쓰지 않는다." }
+    },
     "planner_run_id": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" }
   },
