@@ -12,9 +12,11 @@
 
 - [x] 구현 언어/런타임 결정 — TypeScript + Node LTS (ADR-0009)
 - [x] 프로젝트 골격: 스키마 → 타입 생성, Runner 인터페이스
-- [ ] 스키마 초안을 실제 Task 1~2개에 적용해 보고 수정
-- [ ] Store 인터페이스 + 파일 구현체
-- [ ] commands / queries 최소 집합
+- [ ] 스키마 초안을 실제 Task 1~2개에 적용해 보고 수정 — T-0001 에 적용해 과부족을 찾았다(F1~F12 는 `design/store.md` 5절, 그 뒤의 것은 `retro/T-0001.md` 와 `devflow-data` 의 backlog). 수정은 아직이다
+- [x] Store 인터페이스 + 파일 구현체 — T-0001 (Task 와 Event. 나머지 엔티티는 후속 Task)
+- [x] commands / queries 최소 집합 — T-0001 (`createTask`, `getTask`, `listTasks`)
+
+수동으로 끝까지 수행한 Task: T-0001 (1 / 2~3).
 
 **넘어가는 기준**: 수동으로 Task 2~3개를 끝까지 수행했고, 스키마 변경이 잦아들었다.
 
@@ -31,7 +33,7 @@
 - [ ] CLI: `task new / run / status / review / answer / attach / log`
 - [ ] Workspace 관리자: Task 별 worktree 생성·정리, 프로젝트 등록부, base branch 이동 감지
 - [ ] `task status`: Task 전체에 걸친 "내 입력 대기" 목록
-- [ ] Store lock (Task ID 발급, data commit 직렬화), `exclusive` 프로젝트의 Gate 직렬화
+- [ ] `devflow-data` 의 git commit 직렬화, `exclusive` 프로젝트의 Gate 직렬화 (Task ID 발급은 lock 없이 `mkdir` 로, Task 별 Store commit 의 직렬화는 T-0001 에서 구현 — ADR-0011)
 - [ ] Task Ledger 갱신
 - [ ] Step 전이마다 `devflow-data` 자동 commit
 - [ ] dogfooding 시작 + 실제 업무 repo 1개에 병행 적용
