@@ -89,7 +89,10 @@ export interface Store {
    * 같은 Task 에 대한 commit 은 직렬화되고, 이벤트의 seq 는 1부터 빈틈없이 증가한다.
    * 반영 전에 모든 writes 와 events 를 스키마로 검증한다. 하나라도 위반하면 아무것도 기록되지 않는다.
    *
-   * @throws TaskNotFoundError, ConflictError, SchemaViolationError(phase=write), InvalidChangeError, StoreBusyError
+   * 아래 오류 중 CommitOutcomeUnknownError 를 뺀 나머지는 모두 아무것도 기록되지 않았음을 뜻한다.
+   *
+   * @throws TaskNotFoundError, ConflictError, SchemaViolationError(phase=write), InvalidChangeError, StoreBusyError,
+   *   CommitOutcomeUnknownError
    */
   commit(taskId: string, change: ChangeInput): Promise<CommitResult>;
 
@@ -104,7 +107,8 @@ export interface Store {
   list<K extends EntityKind>(kind: K, scope: EntityScopeMap[K]): Promise<ListResult<EntityMap[K]>>;
 
   /**
-   * Task 의 이벤트를 seq 순으로 돌려준다.
+   * Task 의 이벤트를 seq 순으로 돌려준다. 한 commit 의 이벤트는 전부 보이거나 전혀 보이지 않는다.
+   * seq 가 1부터 빈틈없이 증가하지 않으면 SchemaViolationError(phase=read).
    *
    * @throws TaskNotFoundError, SchemaViolationError(phase=read)
    */

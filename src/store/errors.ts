@@ -49,5 +49,21 @@ export class StoreBusyError extends StoreError {
   }
 }
 
+/**
+ * 기록 도중 실패했고 변경이 반영되었는지 그 자리에서 판정하지 못했다.
+ * 호출자는 readEvents 로 반영 여부를 확인해야 한다. Store 의 상태는 다음 접근에서 일관되게 복구된다.
+ */
+export class CommitOutcomeUnknownError extends StoreError {
+  constructor(
+    readonly taskId: string,
+    /** 반영되었다면 이 변경의 첫 이벤트가 받았을 seq. */
+    readonly firstSeq: number,
+    options?: { cause?: unknown },
+  ) {
+    super(`commit outcome unknown on ${taskId} (first seq ${firstSeq})`);
+    if (options?.cause !== undefined) this.cause = options.cause;
+  }
+}
+
 /** Change 자체가 잘못되었다 (이벤트 없음, 다른 Task 의 엔티티 포함 등). 호출자의 버그다. */
 export class InvalidChangeError extends StoreError {}
