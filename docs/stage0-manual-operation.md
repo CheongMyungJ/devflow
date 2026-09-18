@@ -53,4 +53,8 @@ Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed
 
 ## Task 를 끝낼 때
 
-Planner 의 `done` 결정(AC 별 근거) → 사람의 최종 확인 → task branch 를 main 에 merge(또는 PR) → worktree 정리 → `docs/retro/T-NNNN.md` 작성(템플릿은 `retro/README.md`) → `roadmap.md` 의 체크리스트 갱신.
+Planner 의 `done` 결정(AC 별 근거) → 사람의 최종 확인 → task branch 를 main 에 merge(또는 PR) → worktree 정리 → `docs/retro/T-NNNN.md` 작성(템플릿은 `retro/README.md`) → `roadmap.md` 의 체크리스트 갱신 → **Ledger 의 "후속 Task 후보" 와 회고의 개선 조치를 `devflow-data/backlog.md` 로 옮긴다.** Ledger 는 Task 와 함께 닫히므로 거기에만 적힌 것은 잊힌다.
+
+## 다음에 무엇을 할지
+
+`devflow-data/backlog.md` 에 Task 후보가 권고 순서와 이유와 함께 있다. 큰 방향과 단계 전환 기준은 `roadmap.md`. 새 Task 는 사람이 backlog 에서 골라 Intake 를 거쳐 발행한다.
