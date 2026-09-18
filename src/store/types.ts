@@ -75,12 +75,21 @@ export interface ReadEventsOptions {
   afterSeq?: number;
 }
 
+/**
+ * 쓰기(createTask, commit)의 오류 계약:
+ * CommitOutcomeUnknownError 가 아닌 모든 오류는 아무것도 기록되지 않았음을 뜻한다.
+ * 저장소 접근 실패(I/O, 연결)는 StoreUnavailableError 로, 배타적 접근을 제때 얻지 못한 것은 StoreBusyError 로 나타난다.
+ * 이 둘은 읽기에서도 던져질 수 있다.
+ */
 export interface Store {
   /**
    * 새 Task 를 만든다. ID 는 Store 가 발급하고, build 는 그 ID 로 Task 와 첫 이벤트들을 만든다.
    * build 가 돌려준 task.id 는 발급된 ID 와 같아야 한다 (다르면 InvalidChangeError).
    * Task 와 이벤트는 원자적으로 기록된다. 발급된 ID 는 실패해도 재사용되지 않을 수 있다 (유일하지만 연속은 아니다).
    * build 는 동기이고 부작용이 없어야 한다.
+   *
+   * @throws SchemaViolationError(phase=write), InvalidChangeError, StoreBusyError, StoreUnavailableError,
+   *   CommitOutcomeUnknownError
    */
   createTask(build: (taskId: string) => { task: Task; events: [NewEvent, ...NewEvent[]] }): Promise<{ task: Task; events: Event[] }>;
 
@@ -89,28 +98,30 @@ export interface Store {
    * 같은 Task 에 대한 commit 은 직렬화되고, 이벤트의 seq 는 1부터 빈틈없이 증가한다.
    * 반영 전에 모든 writes 와 events 를 스키마로 검증한다. 하나라도 위반하면 아무것도 기록되지 않는다.
    *
-   * 아래 오류 중 CommitOutcomeUnknownError 를 뺀 나머지는 모두 아무것도 기록되지 않았음을 뜻한다.
-   *
    * @throws TaskNotFoundError, ConflictError, SchemaViolationError(phase=write), InvalidChangeError, StoreBusyError,
-   *   CommitOutcomeUnknownError
+   *   StoreUnavailableError, CommitOutcomeUnknownError
    */
   commit(taskId: string, change: ChangeInput): Promise<CommitResult>;
 
   /**
    * 엔티티 하나를 읽는다. 없으면 undefined. commit 이 끝난 상태만 보인다 (반쯤 반영된 상태는 보이지 않는다).
    *
-   * @throws SchemaViolationError(phase=read) 저장된 데이터가 스키마를 위반할 때
+   * @throws SchemaViolationError(phase=read) 저장된 데이터가 스키마를 위반할 때. StoreBusyError, StoreUnavailableError
    */
   get<K extends EntityKind>(kind: K, key: EntityKeyMap[K]): Promise<EntityMap[K] | undefined>;
 
-  /** 범위 안의 엔티티를 식별자 순으로 돌려준다. */
+  /**
+   * 범위 안의 엔티티를 식별자 순으로 돌려준다. 읽지 못한 항목은 오류로 던지지 않고 invalid 에 담는다.
+   *
+   * @throws StoreBusyError, StoreUnavailableError
+   */
   list<K extends EntityKind>(kind: K, scope: EntityScopeMap[K]): Promise<ListResult<EntityMap[K]>>;
 
   /**
    * Task 의 이벤트를 seq 순으로 돌려준다. 한 commit 의 이벤트는 전부 보이거나 전혀 보이지 않는다.
    * seq 가 1부터 빈틈없이 증가하지 않으면 SchemaViolationError(phase=read).
    *
-   * @throws TaskNotFoundError, SchemaViolationError(phase=read)
+   * @throws TaskNotFoundError, SchemaViolationError(phase=read), StoreBusyError, StoreUnavailableError
    */
   readEvents(taskId: string, options?: ReadEventsOptions): Promise<Event[]>;
 }

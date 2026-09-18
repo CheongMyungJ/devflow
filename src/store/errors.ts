@@ -7,8 +7,8 @@ export interface SchemaIssue {
 }
 
 export abstract class StoreError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = new.target.name;
   }
 }
@@ -58,12 +58,17 @@ export class CommitOutcomeUnknownError extends StoreError {
     readonly taskId: string,
     /** 반영되었다면 이 변경의 첫 이벤트가 받았을 seq. */
     readonly firstSeq: number,
-    options?: { cause?: unknown },
+    options?: ErrorOptions,
   ) {
-    super(`commit outcome unknown on ${taskId} (first seq ${firstSeq})`);
-    if (options?.cause !== undefined) this.cause = options.cause;
+    super(`commit outcome unknown on ${taskId} (first seq ${firstSeq})`, options);
   }
 }
+
+/**
+ * 저장소에 접근하지 못했다 (I/O 오류, 연결 실패 등). 원인은 cause 에 담긴다.
+ * 쓰기에서 던져졌다면 아무것도 기록되지 않았다.
+ */
+export class StoreUnavailableError extends StoreError {}
 
 /** Change 자체가 잘못되었다 (이벤트 없음, 다른 Task 의 엔티티 포함 등). 호출자의 버그다. */
 export class InvalidChangeError extends StoreError {}
