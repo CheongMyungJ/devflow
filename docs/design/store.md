@@ -160,7 +160,7 @@ lock 을 잡은 상태에서:
 - 되돌리기가 잘라내는 것은 **자신의 `lines` 와 일치하는 바이트뿐**이다. 다른 프로세스가 성립시킨 이벤트를 지우는 일은 없다(v2 의 "`firstSeq` 이상의 줄을 센다" 는 방식은 이를 구별하지 못했다).
 - 마지막 경우는 정상 동작과 프로세스 crash 로는 생기지 않는다. 생겼다면 lock 의 가정이 깨졌거나(2.8), 전원 장애로 파일이 손상되었거나, 사람이 파일을 고친 것이다. 어느 쪽이든 자동으로 고치지 않는다. 그 Task 에 대한 이후의 쓰기와 lock 경로의 읽기는 사람이 정리할 때까지 같은 오류를 낸다.
 - 복구는 몇 번을 수행해도 결과가 같다. 복구 도중에 죽으면 다음 접근이 같은 복구를 처음부터 다시 한다. 복구는 lock 을 쥔 프로세스만 수행한다.
-- "append-only" 는 **성립한 commit 의 이벤트**에 대한 규칙이다. 성립하지 않은 commit 의 잔여물을 잘라내는 것은 위반이 아니다. `AGENTS.md` 7번과 `devflow-data/README.md` 의 문구는 이 해석을 담고 있지 않다(5절 F10).
+- "append-only" 는 **성립한 commit 의 이벤트**에 대한 규칙이다. 성립하지 않은 commit 의 잔여물을 잘라내는 것은 위반이 아니다. `AGENTS.md` 7번은 이 해석을 담도록 고쳐졌다(ADR-0011). `devflow-data/README.md` 의 문구는 아직 그렇지 않다(5절 F10).
 
 ### 2.6 검증 시점
 
@@ -277,9 +277,9 @@ step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Win
 | F5 | `Event.data` 의 이벤트 종류별 내용이 정의되어 있지 않다 (`step.status_changed` 의 from/to 등) | Orchestrator 를 만들 때 종류별 payload 표를 정하고 스키마에 `if/then` 으로 추가. `task.created` 는 payload 가 필요 없어 이번 Task 에는 영향 없음 |
 | F6 | `Event.actor` 형식이 description 에만 있고 강제되지 않는다 | pattern 추가: `^(human:.+\|system\|role:(intake\|worker\|reviewer\|planner))$` |
 | F7 | Run 의 파일 위치가 README 에는 `runs/R-001.transcript.jsonl` 만 있고 Run 기록 자체의 위치가 없다. Step 에 속하지 않는 Run(Intake, Planner)의 위치도 없다 | `runs/<id>.yaml` 추가, Task 수준 `T-NNNN/runs/` 추가 |
-| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | 구현 Step 에서 추가 |
+| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | `devflow-data` 는 T-0001 의 대상 repo 가 아니어서 후속 작업으로 남겼다. Store 를 실제 `devflow-data` 에 쓰기 전에 필요하다 |
 | F9 | 대상 repo 안에 있는 문서 산출물(이 문서가 그 예)을 Artifact 로 어떻게 표현할지 모호하다. `type: document` 인데 내용은 `content_key` 가 아니라 `code`(commit 참조)로 가리켰다 | Artifact 에 "내용의 위치" 를 명시하는 필드(`stored_in: store \| repo`)와 repo 내 경로 목록을 추가 |
-| F10 | `AGENTS.md` 7번과 `devflow-data/README.md` 의 "이벤트를 수정·삭제하지 않는다" 는 성립하지 않은 commit 의 잔여물을 잘라내는 복구(2.5)와 글자 그대로는 충돌한다 | 두 문서의 문구를 "성립한 commit 의 이벤트" 로 고친다 |
+| F10 | `AGENTS.md` 7번과 `devflow-data/README.md` 의 "이벤트를 수정·삭제하지 않는다" 는 성립하지 않은 commit 의 잔여물을 잘라내는 복구(2.5)와 글자 그대로는 충돌한다 | `AGENTS.md` 7번은 고쳤다(ADR-0011). `devflow-data/README.md` 는 후속 작업으로 남겼다 |
 | F11 | GateResult 의 `verdict` 가 pass/fail 뿐이라 "통과했지만 구현 전에 고쳐야 할 결함이 있다"(G-001 이 그랬다)를 표현하지 못한다. 사람이 comments 를 다 읽어야 알 수 있다 | `comments` 를 `{ severity: defect \| risk \| note, text }` 로 구조화하거나 verdict 에 `pass_with_concerns` 추가 |
 | F12 | 이벤트에 commit(또는 호출자)의 식별자가 없다. `CommitOutcomeUnknownError` 뒤에 "내 변경이 들어갔는가" 를 내용 비교로만 확인할 수 있고, 두 호출자가 같은 내용의 이벤트를 만들면 구별할 수 없다 | Event 에 선택 필드 `commit_id`(Store 가 commit 마다 부여)를 추가하고 `CommitResult` 와 오류에 담는다 |
 

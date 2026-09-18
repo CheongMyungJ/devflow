@@ -1,4 +1,5 @@
-import { CommitOutcomeUnknownError } from '../store/errors.js';
+import { isDeepStrictEqual } from 'node:util';
+import { CommitOutcomeUnknownError, StoreUnavailableError } from '../store/errors.js';
 import type { NewEvent } from '../store/types.js';
 import type { Task } from '../types/generated/index.js';
 import type { CommandContext } from './context.js';
@@ -48,9 +49,19 @@ export async function createTask(ctx: CommandContext, input: CreateTaskInput): P
   try {
     return (await ctx.store.createTask(build)).task;
   } catch (error) {
-    if (!(error instanceof CommitOutcomeUnknownError) || !sent) throw error;
-    // 이 Task ID 는 이 호출에만 발급되었으므로 그 자리의 이벤트는 이 호출의 것이거나 없다.
+    if (!(error instanceof CommitOutcomeUnknownError) || sent?.id !== error.taskId) throw error;
     await confirmOutcome(ctx.store, error, [event]);
+    // 이벤트만으로는 부족하다: 실패한 발행의 ID 는 다른 호출자에게 다시 발급될 수 있고, 같은 행위자·같은 시각이면
+    // task.created 의 내용이 같다. 저장된 Task 까지 보낸 것과 같아야 이 호출이 성립한 것이다 (docs/design/commands.md 3절).
+    let stored: Task | undefined;
+    try {
+      stored = await ctx.store.get('task', { taskId: sent.id });
+    } catch {
+      throw error; // 아직도 알 수 없다
+    }
+    if (!isDeepStrictEqual(stored, JSON.parse(JSON.stringify(sent)))) {
+      throw new StoreUnavailableError(`task ${sent.id} did not land`, { cause: error });
+    }
     return sent;
   }
 }

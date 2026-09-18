@@ -61,9 +61,18 @@ describe('commands.createTask (AC6)', () => {
 
 describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 (docs/design/commands.md 3절)', () => {
   /** createTask 가 build 를 부른 뒤 CommitOutcomeUnknownError 를 던지는 가짜 Store. landed 가 그 뒤 readEvents 가 돌려줄 내용이다. */
-  function unknownOutcomeStore(landed: (sent: { task: Task; events: NewEvent[] }) => Event[] | Error): Store {
+  function unknownOutcomeStore(
+    landed: (sent: { task: Task; events: NewEvent[] }) => Event[] | Error,
+    storedTask: (sent: Task) => Task | undefined | Error = (task) => task,
+  ): Store {
     let sent: { task: Task; events: NewEvent[] } | undefined;
     return {
+      get: async (_kind: string, key: { taskId: string }) => {
+        expect(key).toEqual({ taskId: 'T-0007' });
+        const result = storedTask(sent!.task);
+        if (result instanceof Error) throw result;
+        return result;
+      },
       createTask: async (build: (id: string) => { task: Task; events: [NewEvent, ...NewEvent[]] }) => {
         sent = build('T-0007');
         throw new CommitOutcomeUnknownError('T-0007', 1);
@@ -99,8 +108,23 @@ describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 (docs/
     }
   });
 
+  it('이벤트는 같아도 저장된 Task 가 보낸 것과 다르면 남의 발행이다 (같은 ID 가 다시 발급되고 같은 행위자·같은 시각인 경우)', async () => {
+    const sameEvent = (sent: { events: NewEvent[] }) => [{ ...sent.events[0]!, seq: 1, task_id: 'T-0007' } as Event];
+    const someoneElses = unknownOutcomeStore(sameEvent, (task) => ({ ...task, title: '다른 사람이 발행한 Task' }));
+    const error = await createTask(context(someoneElses), input).catch((e) => e);
+    expect(error).toBeInstanceOf(StoreUnavailableError);
+    expect(error.cause).toBeInstanceOf(CommitOutcomeUnknownError);
+
+    const missing = unknownOutcomeStore(sameEvent, () => undefined);
+    await expect(createTask(context(missing), input)).rejects.toBeInstanceOf(StoreUnavailableError);
+  });
+
   it('확인조차 할 수 없으면 여전히 알 수 없는 것이다 → 원래의 CommitOutcomeUnknownError', async () => {
-    const store = unknownOutcomeStore(() => new StoreUnavailableError('disk gone'));
-    await expect(createTask(context(store), input)).rejects.toBeInstanceOf(CommitOutcomeUnknownError);
+    const eventsUnreadable = unknownOutcomeStore(() => new StoreUnavailableError('disk gone'));
+    await expect(createTask(context(eventsUnreadable), input)).rejects.toBeInstanceOf(CommitOutcomeUnknownError);
+
+    const sameEvent = (sent: { events: NewEvent[] }) => [{ ...sent.events[0]!, seq: 1, task_id: 'T-0007' } as Event];
+    const taskUnreadable = unknownOutcomeStore(sameEvent, () => new StoreUnavailableError('disk gone'));
+    await expect(createTask(context(taskUnreadable), input)).rejects.toBeInstanceOf(CommitOutcomeUnknownError);
   });
 });
