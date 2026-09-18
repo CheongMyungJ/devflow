@@ -45,7 +45,7 @@ interface EntityDef<K extends EntityKind> {
   schema: SchemaName;
   taskIdOf(value: EntityMap[K]): string;
   keyOf(value: EntityMap[K]): EntityKeyMap[K];
-  /** Task 디렉터리 기준 상대 위치. */
+  /** Task 디렉터리 기준 상대 위치. 구분자는 항상 '/' 다(path.join 을 쓰지 않는다): commit.json 에 그대로 저장되므로 OS 를 옮겨도 읽혀야 한다. */
   relPath(key: EntityKeyMap[K]): string;
   subject(key: EntityKeyMap[K]): string;
 }
@@ -133,7 +133,7 @@ export class FileStore implements Store {
       const built = build(taskId);
       if (built.task.id !== taskId) throw new InvalidChangeError(`build returned task id ${built.task.id}, issued ${taskId}`);
       const change: Change = { writes: [{ kind: 'task', value: built.task }], events: built.events };
-      const result = await this.withLock(taskId, () => this.commitLocked(taskId, change, true));
+      const result = await this.withLock(taskId, (token) => this.commitLocked(taskId, token, change, true));
       return { task: built.task, events: result.events };
     } catch (error) {
       // 기록되지 않았다면 발급된 ID 의 빈 디렉터리를 치운다. ID 는 버려진다(유일하지만 연속은 아니다).
@@ -143,7 +143,7 @@ export class FileStore implements Store {
   }
 
   commit(taskId: string, change: ChangeInput): Promise<CommitResult> {
-    return this.withLock(taskId, () => this.commitLocked(taskId, change, false));
+    return this.withLock(taskId, (token) => this.commitLocked(taskId, token, change, false));
   }
 
   /** mkdir 의 원자성으로 유일성을 보장한다. 전역 lock 은 없다 (store.md 2.3). */
@@ -167,7 +167,7 @@ export class FileStore implements Store {
   }
 
   /** store.md 2.4. lock 을 쥔 상태에서 호출한다. */
-  private async commitLocked(taskId: string, input: ChangeInput, creating: boolean): Promise<CommitResult> {
+  private async commitLocked(taskId: string, token: string, input: ChangeInput, creating: boolean): Promise<CommitResult> {
     // 1. 이전 commit 의 복구. 끝나지 않으면 디스크를 건드리지 않고 물러난다.
     const recovery = await this.guard(() => this.recover(taskId));
     if (recovery.outcome === 'forward-incomplete') {
@@ -192,7 +192,6 @@ export class FileStore implements Store {
     const files = writes.map((write, i) => this.planWrite(taskId, write, i));
 
     // 5. 무엇을 하려는지 메모한다.
-    const token = await this.currentToken(taskId);
     const pendingDir = join(this.taskDir(taskId), `${PENDING_PREFIX}${token}`);
     const lines = events.map((event) => {
       const { seq, task_id, ...rest } = event;
@@ -458,24 +457,14 @@ export class FileStore implements Store {
     return join(this.taskDir(taskId), EVENTS);
   }
 
-  private readonly heldTokens = new Map<string, string>();
-
-  private async withLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+  private async withLock<T>(taskId: string, fn: (token: string) => Promise<T>): Promise<T> {
     if (!TASK_DIR.test(taskId)) throw new TaskNotFoundError(taskId);
     const lock = await this.locks.acquire(taskId);
-    this.heldTokens.set(taskId, lock.token);
     try {
-      return await fn();
+      return await fn(lock.token);
     } finally {
-      this.heldTokens.delete(taskId);
       await lock.release();
     }
-  }
-
-  private async currentToken(taskId: string): Promise<string> {
-    const token = this.heldTokens.get(taskId);
-    if (!token) throw new Error(`commit on ${taskId} without holding its lock`);
-    return token;
   }
 
   private async readOrEmpty(path: string): Promise<Buffer> {
@@ -493,6 +482,8 @@ export class FileStore implements Store {
     const last = lines.at(-1);
     const seq = last ? seqOf(last.text) : 0;
     if (tornFrom !== undefined || seq === undefined) throw this.unexpectedState(taskId, 'events.jsonl ends with an unreadable line');
+    // seq 는 1부터 빈틈없으므로 줄 수와 같아야 한다. 중간이 손상된 로그 위에 commit 을 더 쌓지 않는다.
+    if (seq !== lines.length) throw this.unexpectedState(taskId, `events.jsonl has ${lines.length} lines but its last seq is ${seq}`);
     return seq;
   }
 

@@ -77,7 +77,7 @@ describe('FileStore: lock (store.md 2.2)', () => {
   it('살아 있는 프로세스의 lock 은 빼앗지 않는다 — 제한 시간 뒤 안내와 함께 StoreBusyError', async () => {
     const dataDir = tempDataDir();
     const task = await createSample(newStore(dataDir));
-    const holder = spawnChild({ dataDir, action: 'commit', taskId: task.id, count: 1, label: 'holder', holdMs: 3000 });
+    const holder = spawnChild({ dataDir, action: 'commit', taskId: task.id, count: 1, label: 'holder', holdMs: 6000 });
     await holder.waitFor('holding');
 
     const impatient = newStore(dataDir, { lockTimeoutMs: 300 });
