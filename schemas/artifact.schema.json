@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/artifact.schema.json",
+  "title": "ArtifactVersion",
+  "description": "Step 산출물의 한 버전. 승인된 버전이 Task 의 공식 작업 기록이 된다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ref", "task_id", "step_id", "name", "version", "type", "author", "created_at"],
+  "properties": {
+    "ref": { "type": "string", "description": "artifact://<task>/<step>/<name>@v<N>", "pattern": "^artifact://" },
+    "task_id": { "type": "string" },
+    "step_id": { "type": "string" },
+    "name": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "type": { "enum": ["document", "code_change", "data"] },
+    "author": {
+      "description": "worker: AI 가 생성. human: 사람이 submit_human_revision 으로 직접 수정한 버전.",
+      "enum": ["worker", "human"]
+    },
+    "run_id": { "type": "string", "description": "author=worker 인 경우 생성한 실행 ID." },
+    "content_key": { "type": "string", "description": "document/data: Store 내부 키. 경로가 아니다." },
+    "code": {
+      "description": "code_change: 대상 repo 의 commit 참조.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "branch", "base_sha", "head_sha"],
+      "properties": {
+        "repo": { "type": "string" },
+        "branch": { "type": "string" },
+        "base_sha": { "type": "string" },
+        "head_sha": { "type": "string" }
+      }
+    },
+    "summary": { "type": "string", "description": "Ledger 에 들어갈 짧은 요약." },
+    "live_instructions_summary": { "type": "string", "description": "실행 중 사람에게 받은 지시 요약 (Worker 작성, ADR-0006)." },
+    "approved": { "type": "boolean", "default": false },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

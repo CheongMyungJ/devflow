@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/feedback.schema.json",
+  "title": "Feedback",
+  "description": "사람이 AI 작업에 대해 남기는 모든 입력. 검토 시 또는 실행 중(live)에 발생한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "kind", "channel", "text", "author", "created_at"],
+  "properties": {
+    "id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "step_id": { "type": "string" },
+    "kind": {
+      "description": "revision_request: 이 Step 산출물이 미흡. question: 질문(상태 변화 없음). approval: 승인. requirement: Task 자체의 요구사항 추가/변경. direction: 실행 중 방향 지시. answer: ask_human 에 대한 답변.",
+      "enum": ["revision_request", "question", "approval", "requirement", "direction", "answer"]
+    },
+    "channel": {
+      "description": "review: task review 에서. live: 실행 중 세션 개입 (ADR-0006). plan: Step 제안 확인 단계에서.",
+      "enum": ["review", "live", "plan"]
+    },
+    "target": {
+      "description": "대상. approval 과 revision_request 는 artifact_ref(버전 포함)가 필수다.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact_ref": { "type": "string", "description": "artifact://…@vN — 반드시 버전을 포함한다." },
+        "location": { "type": "string", "description": "선택. 'path:line' 형태의 위치 (PR 코멘트 매핑용)." },
+        "run_id": { "type": "string", "description": "channel=live 인 경우 대상 실행." },
+        "decision_id": { "type": "string", "description": "kind=answer 인 경우 대상 Decision." }
+      }
+    },
+    "text": { "type": "string" },
+    "response": { "type": "string", "description": "kind=question 인 경우 AI 의 답변." },
+    "promoted_to": { "type": "string", "description": "live 지시가 Task 요구사항으로 승격된 경우 해당 AC ID." },
+    "author": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "enum": ["approval", "revision_request"] } } },
+      "then": { "required": ["target"], "properties": { "target": { "required": ["artifact_ref"] } } }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/task.schema.json",
+  "title": "Task",
+  "description": "사람이 제기한 문제를 Intake 가 정제한 결과. 이후 모든 AI 역할은 Intake 대화가 아닌 이 정의만 본다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "type", "goal", "acceptance_criteria", "target", "status", "created_at"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^T-[0-9]{4,}$" },
+    "title": { "type": "string" },
+    "type": {
+      "description": "Task 의 성격. Planner 가 Step 구성을 판단할 때 참고한다.",
+      "enum": ["feature", "bugfix", "research", "other"]
+    },
+    "goal": { "type": "string", "description": "무엇을 달성해야 하는가. 한두 문단." },
+    "background": { "type": "string", "description": "배경, 현상, 재현 조건 등 Intake 대화에서 확인된 사실." },
+    "constraints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "지켜야 할 제약 (건드리면 안 되는 모듈, 호환성, 일정 등)."
+    },
+    "acceptance_criteria": {
+      "description": "Task 성공 기준. Planner 의 done 결정은 이 항목별 충족 근거를 제시해야 한다. 실행 중 요구사항 추가 시 항목이 늘어난다.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC[0-9]+$" },
+          "text": { "type": "string" },
+          "added_by": { "type": "string", "description": "최초 발행 이후 추가된 경우, 근거가 된 Feedback ID." }
+        }
+      }
+    },
+    "target": {
+      "description": "대상 repo 와 작업 branch. Task 하나는 repo 하나만 대상으로 한다 (ADR-0008). 로컬 경로를 저장하지 않는다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "base_branch", "task_branch"],
+      "properties": {
+        "repo": { "type": "string", "description": "devflow-data/projects.yaml 에 등록된 프로젝트 이름." },
+        "base_branch": { "type": "string" },
+        "task_branch": { "type": "string" },
+        "scope_hint": { "type": "array", "items": { "type": "string" }, "description": "관련 디렉터리/모듈 힌트 (repo 상대 경로)." }
+      }
+    },
+    "limits": {
+      "description": "안전장치. 초과 시 시스템이 자동으로 ask_human 으로 넘긴다.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_steps": { "type": "integer", "minimum": 1 },
+        "max_rework_per_step": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "status": { "enum": ["open", "waiting_human", "done", "aborted"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string" }
+  }
+}

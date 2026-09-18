@@ -1,0 +1,16 @@
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# local env / secrets
+.env
+.env.*
+
+# build / deps (언어 확정 후 정리)
+node_modules/
+dist/
+__pycache__/
+.venv/
+*.pyc

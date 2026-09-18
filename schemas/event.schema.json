@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/event.schema.json",
+  "title": "Event",
+  "description": "Task 별 append-only 이벤트 로그(events.jsonl)의 한 줄. 상태의 기준 기록이며, 수정·삭제하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seq", "task_id", "type", "actor", "at"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 1, "description": "Task 내 순번. 동시성 제어와 재적재의 기준." },
+    "task_id": { "type": "string" },
+    "type": {
+      "description": "MVP 에서 사용하는 이벤트. 필요 시 추가한다.",
+      "enum": [
+        "task.created", "task.requirement_added", "task.done", "task.aborted",
+        "decision.made", "decision.answered",
+        "step.proposed", "step.defined", "step.status_changed", "step.cancelled",
+        "run.submitted", "run.message_sent", "run.completed", "run.failed", "run.cancelled",
+        "artifact.version_added", "artifact.approved",
+        "feedback.added",
+        "gate.completed",
+        "ledger.updated"
+      ]
+    },
+    "actor": { "description": "human:<id> | system | role:<intake|worker|reviewer|planner>", "type": "string" },
+    "step_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "ref": { "type": "string", "description": "관련 엔티티 ID 또는 artifact ref." },
+    "data": { "type": "object", "description": "이벤트별 부가 데이터 (예: status_changed 의 from/to)." },
+    "system_sha": { "type": "string", "description": "실행 당시 devflow repo 의 commit SHA (프롬프트/스키마 버전 추적)." },
+    "at": { "type": "string", "format": "date-time" }
+  }
+}

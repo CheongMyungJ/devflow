@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/gate-result.schema.json",
+  "title": "GateResult",
+  "description": "특정 Artifact 버전들에 대한 Quality Gate 판정. deterministic 결과는 시스템이, semantic 결과는 Quality Reviewer 가 채운다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "task_id", "step_id", "artifact_refs", "verdict", "checks", "created_at"],
+  "properties": {
+    "id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "step_id": { "type": "string" },
+    "artifact_refs": {
+      "description": "판정 대상 버전. 승인된 버전과 같으면 이 결과가 공식 Gate 결과가 된다.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "verdict": { "enum": ["pass", "fail"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name", "result"],
+        "properties": {
+          "kind": { "enum": ["deterministic", "semantic"] },
+          "name": { "type": "string", "description": "deterministic: 검사 이름. semantic: verify.semantic 의 질문." },
+          "result": { "enum": ["pass", "fail", "skipped"] },
+          "evidence": { "type": "string", "description": "로그 요약 또는 Reviewer 의 판단 근거." },
+          "log_key": { "type": "string", "description": "전체 로그의 Store 키." }
+        }
+      }
+    },
+    "done_when": {
+      "description": "완료 조건별 충족 여부 (Reviewer 판단).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["condition", "met"],
+        "properties": {
+          "condition": { "type": "string" },
+          "met": { "type": "boolean" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "comments": {
+      "description": "판정과 별개로 사람·Planner 에게 전달할 의견 (예: 미확인 케이스).",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "reviewer_run_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}
