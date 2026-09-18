@@ -32,18 +32,22 @@
           { "description": "'task.ledger' — Task Ledger.", "const": "task.ledger" },
           {
             "description": "'artifact://<task>/<step>/<name>@v<N>' — 문서·코드 산출물의 특정 버전. 예: 'artifact://T-0012/step-002/repro-report@v2'. 버전(@v1 부터)은 필수다. <name> 은 영숫자로 시작하고 영숫자와 . _ - 만 쓴다.",
+            "type": "string",
             "pattern": "^artifact://T-[0-9]{4,}/step-[0-9]{3,}/[A-Za-z0-9][A-Za-z0-9._-]*@v[1-9][0-9]*$"
           },
           {
             "description": "'code://<project>@<sha>' — 등록된 프로젝트(데이터 repo 의 projects.yaml 에 있는 이름)의 특정 commit 의 코드. <sha> 는 줄이지 않은 commit SHA(16진 소문자 40자, SHA-256 repo 는 64자)이고 branch 이름이나 줄인 SHA 는 쓸 수 없다. <project> 는 Task 의 대상 repo(target.repo)가 아니어도 된다 — 등록된 프로젝트이면 어느 것이든 가리킬 수 있고, 한 Step 이 여러 개를 가리켜도 된다. 대상 repo 가 아닌 프로젝트의 code:// 는 읽기 전용 참조다: 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이고(ADR-0008), 다른 프로젝트는 그 SHA 의 내용을 읽을 수 있게만 제공된다. 프로젝트가 실제로 등록되어 있는지는 스키마가 아니라 시스템이 패킷을 조립할 때 확인한다.",
+            "type": "string",
             "pattern": "^code://[A-Za-z0-9][A-Za-z0-9._-]*@([0-9a-f]{40}|[0-9a-f]{64})$"
           },
           {
             "description": "'gate://<task>/<step>/<gate-id>' — GateResult 하나. 예: 'gate://T-0001/step-001/G-003'.",
+            "type": "string",
             "pattern": "^gate://T-[0-9]{4,}/step-[0-9]{3,}/G-[0-9]{3,}$"
           },
           {
             "description": "'blob:<key>' — Store 의 blob 키(로그, 실측 기록 등 Artifact 가 아닌 자료). 예: 'blob:T-0001/step-001/R-005.probe'. <key> 는 '/' 로 나뉜 조각들이고 각 조각은 영숫자·_·- 로 시작해 영숫자와 . _ - 만 쓴다('.', '..' 조각과 ':', 역슬래시, 맨 앞의 '/' 는 쓸 수 없다 — 경로가 아니라 키다).",
+            "type": "string",
             "pattern": "^blob:[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"
           }
         ]
