@@ -31,8 +31,8 @@
 
 | 구성 요소 | 책임 | MVP 구현 | 확장 시 |
 |---|---|---|---|
-| commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로 | in-process 함수 | HTTP API |
-| State Store | Task/Step/Artifact/Feedback/GateResult/Decision/Event 저장 | 파일 (`devflow-data` repo) | DB + object storage |
+| commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로. 규약 `docs/design/commands.md` | in-process 함수 | HTTP API |
+| State Store | Task/Step/Artifact/Feedback/GateResult/Decision/Event 저장. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
 | Orchestrator | 멱등 `advance(task_id)` | 사람이 `task run` 으로 호출 | 이벤트가 호출 |
 | Role Runner | `submit / result / stream / sendMessage / cancel` + 백엔드 어댑터 | 로컬 subprocess (`claude-code`, `codex`, 테스트용 `fake`) | job queue + 컨테이너 |
 | Workspace | Task 별 branch/worktree | 로컬 git | 서버 clone, remote 경유 |
@@ -141,7 +141,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - **Task 하나 = repo 하나 = worktree 하나.** Worker 와 Gate 는 그 Task 의 worktree 안에서만 실행한다. worktree 경로는 Workspace 관리자가 실행 시점에 풀어 주며 기록하지 않는다. 여러 repo 에 걸친 작업은 Task 를 나눠 발행한다.
 - 프로젝트 이름 → remote URL·기본 branch 는 `devflow-data/projects.yaml` 에, 로컬 clone 위치는 머신별 설정에 둔다.
 - 대상 repo 의 `.devflow.yaml`(`schemas/project-config.schema.json`)이 검증 명령을 정의한다. `exclusive: true` 인 프로젝트는 Gate 를 직렬로 실행한다.
-- Store 파일 구현체는 Task ID 발급과 `devflow-data` commit 을 lock 으로 직렬화한다.
+- Store 파일 구현체는 같은 Task 에 대한 commit 을 Task 별 lock 으로 직렬화한다. Task ID 는 lock 없이 `mkdir` 의 원자성으로 발급한다(ADR-0011). `devflow-data` 의 git 자동 commit 은 직렬화해야 한다(미구현).
 - 같은 repo 의 동시 수정은 막지 않는다. `advance` 가 base branch 이동을 감지해 Planner 에 알리고, Planner 가 "base 갱신 후 재검증" Step 을 만든다.
 - `task status` 는 Task 전체에 걸쳐 사람 입력을 기다리는 항목을 보여 준다. 동시 실행 수 상한은 전역 설정이다.
 

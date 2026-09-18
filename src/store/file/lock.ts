@@ -69,13 +69,13 @@ export class LockManager {
           return { token, release: () => this.release(lockPath, token) };
         }
         last = await this.inspect(lockPath);
-        // 길을 튼 경우에만 기다리지 않고 다시 시도한다. 어느 경우든 제한 시간 검사는 거친다.
+        // 모든 반복이 이 검사를 거친다. 길을 트는 일은 검사 뒤에 하므로, 길을 텄다면 반드시 한 번 더 획득을 시도한다.
+        if (Date.now() >= deadline) break;
         let cleared = false;
         if (last.state === 'owned') {
           if (this.unreleased.has(last.owner.token)) cleared = await this.clearUnreleased(lockPath, last.owner.token);
           else if (this.isStale(last.owner)) cleared = await this.reap(taskId, lockPath, last.owner.token);
         }
-        if (Date.now() >= deadline) break;
         // 'gone' 은 방금 해제된 것이므로 거의 바로 다시 시도한다.
         if (!cleared) await sleep(last.state === 'gone' ? 1 : 10 + Math.random() * 40);
       }
@@ -116,7 +116,13 @@ export class LockManager {
     const dir = join(this.locksDir, `.tmp-${token}`);
     const owner: Owner = { pid: process.pid, hostname: hostname(), platform: process.platform, token, acquiredAt: new Date().toISOString() };
     await this.ops.mkdir(dir, false);
-    await this.ops.writeFile(join(dir, 'owner.json'), JSON.stringify(owner));
+    try {
+      await this.ops.writeFile(join(dir, 'owner.json'), JSON.stringify(owner));
+    } catch (error) {
+      // 빈 준비용 디렉터리는 청소 대상이 아니므로(살아 있는 프로세스의 것일 수 있다) 여기서 스스로 치운다.
+      await this.ops.remove(dir).catch(() => undefined);
+      throw error;
+    }
     return dir;
   }
 
@@ -167,7 +173,13 @@ export class LockManager {
     try {
       const now = await this.inspect(lockPath);
       if (now.state === 'owned' && now.owner.token === observedToken && this.isStale(now.owner)) {
-        await this.removeLock(lockPath, observedToken);
+        try {
+          await this.removeLock(lockPath, observedToken);
+        } catch {
+          // 다른 프로그램이 lock 디렉터리를 붙들고 있다. 자신의 lock 을 정리하지 못한 경우(clearUnreleased)와 같게
+          // 길을 트지 못한 것으로 보고, 제한 시간 뒤 StoreBusyError 와 안내로 끝나게 한다.
+          return false;
+        }
       }
       return true;
     } finally {

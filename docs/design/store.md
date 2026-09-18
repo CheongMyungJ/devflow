@@ -69,7 +69,7 @@
 - 엔티티는 YAML, 이벤트는 JSON Lines. 줄바꿈은 항상 LF, 인코딩은 UTF-8.
 - `dataDir` 은 구현체 생성자 인자다. 인터페이스에는 나타나지 않는다.
 - "Task 가 존재한다" 의 정의: `events.jsonl` 에 seq 1 이 있다. 디렉터리만 있고 이벤트가 없는 것은 버려진 ID 다.
-- `.locks/`, `.pending-*/`, `.rollbacks` 를 `devflow-data/.gitignore` 에 추가해야 한다(구현 Step 에서).
+- `.locks/`, `.pending-*/`, `.rollbacks` 를 `devflow-data/.gitignore` 에 추가해야 한다. `devflow-data` 는 다른 repo 이므로 이 구현체를 만든 Task(T-0001)의 범위 밖이고, 후속 작업으로 남겼다(5절 F8).
 
 ### 2.2 Lock
 
@@ -112,7 +112,7 @@ stale 이 아닌 lock 때문에 제한 시간을 넘기면 `StoreBusyError` 의 
 
 - 전역 lock 을 쓰지 않는다. 현재 최대 `T-NNNN` + 1 을 후보로 `mkdir <dataDir>/T-NNNN` 을 시도하고, `EEXIST` 면 +1 해서 다시 시도한다. `mkdir` 의 원자성이 유일성을 보장한다.
 - 그 뒤 해당 Task 의 lock 을 잡고 일반 commit 과 같은 절차로 Task 와 첫 이벤트를 기록한다.
-- ADR-0008 결정 4 와 `architecture.md` 는 "Task ID 발급을 lock 으로 직렬화한다" 고 적고 있다. 이 설계는 같은 목적(유일성)을 lock 없이 달성한다. 문서를 맞추는 일은 이 Step 의 범위 밖이다.
+- ADR-0008 결정 4 는 "Task ID 발급을 lock 으로 직렬화한다" 고 적었으나 같은 목적(유일성)을 lock 없이 달성하므로 ADR-0011 이 그 부분을 대체했다.
 - 4자리 0 채움, 9999 를 넘으면 자릿수가 늘어난다(스키마 패턴 `^T-[0-9]{4,}$`).
 
 ### 2.4 commit 절차
@@ -208,7 +208,7 @@ step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Win
 | I3 | 장애 재현 방법 | 파일 시스템 연산을 `FileOps` 인터페이스 뒤에 두었다. I/O 오류는 테스트가 `FileOps` 를 감싸 주입하고, crash 는 **실제 자식 프로세스를 그 지점에서 `process.exit` 시켜** 만든다(lock 과 `.pending` 이 남은 채 pid 가 죽는다). 2.4 와 2.5 의 표의 각 행에 테스트가 있다 |
 | I4 | 동시성 테스트 | 별도 프로세스 6개를 barrier 파일로 동시에 출발시킨다. 같은 Task 에 90개의 commit, 동시 `createTask` 48개. 이벤트가 프로세스 간에 섞였는지도 확인해 경합이 실제로 일어났음을 보인다 |
 | I5 | 기본값 | lock 제한 시간 5초, 획득 재시도 간격 10~50ms(방금 해제된 경우 1ms), rename/삭제의 일시적 오류 재시도는 지수 백오프로 총 1초. `FileStoreOptions` 의 `lockTimeoutMs`, `transientRetryMs` 로 바꾼다 |
-| I6 | `CommitOutcomeUnknownError` 뒤의 확인 규약 | 오류의 `firstSeq` 로 `readEvents({ afterSeq: firstSeq - 1 })` 를 읽어 자신이 보낸 이벤트와 내용이 같으면 성립한 것이다. commands 계층에서 문서화한다(다음 Step). 식별자 부재는 5절 F12 |
+| I6 | `CommitOutcomeUnknownError` 뒤의 확인 규약 | 오류의 `firstSeq` 로 `readEvents({ afterSeq: firstSeq - 1 })` 를 읽어 자신이 보낸 이벤트와 내용이 같으면 성립한 것이다. 절차와 "다른 호출자의 이벤트를 오인하지 않는가" 에 대한 논의는 `docs/design/commands.md` 3절, 구현은 `src/commands/outcome.ts`. 식별자 부재는 5절 F12 |
 | I7 | `StoreBusyError` 의 안내 | `detail` 에 소유자의 pid 와 획득 시각, 지워야 할 경로(`.lock`, 남아 있다면 `.reap`), "다른 devflow 프로세스가 실행 중이 아닌 것을 확인한 뒤" 라는 조건을 담는다 |
 
 구현하며 추가로 정한 것:
@@ -218,8 +218,10 @@ step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Win
 - **이전 commit 의 뒷정리가 끝나지 않으면 다음 commit 을 쌓지 않는다(2.4 의 1단계)**: 디스크를 건드리지 않고 `StoreUnavailableError` 로 물러난다. 계속 진행하면 `.pending` 이 둘이 되어 lock 의 가정이 깨지지 않았는데도 2.5 의 "판정하지 않는다" 에 도달한다.
 - **`createTask` 가 되돌려지면 빈 `events.jsonl` 을 지운다.** 남더라도 크기 0 은 "없음" 으로 취급한다(2.7).
 - **`.reap` 도 lock 과 같은 방식으로(고유 이름으로 rename 후 삭제) 해제한다.**
-- **해제에 실패한 lock 은 프로세스가 기억한다.** 오래 사는 프로세스에서는 자신의 pid 가 살아 있어 stale 로 회수되지 않으므로, 다음 획득 때 경로의 lock 이 자신이 해제하지 못한 token 이면 직접 정리한다. 같은 프로세스의 획득자 여럿이 동시에 정리하려 들 수 있으므로 프로세스 안에서 직렬화하고, 그 안에서 token 을 다시 확인한 뒤에만 없앤다(회수 절차와 같은 구조다). 정리도 계속 실패하면 제한 시간 뒤 `StoreBusyError` 다.
+- **해제에 실패한 lock 은 그 Store 인스턴스가 기억한다.** 그래서 Store 는 프로세스마다 하나만 만든다(`docs/design/commands.md` 5절): 인스턴스가 둘이면 한쪽이 남긴 lock 을 다른 쪽은 살아 있는 남의 lock 으로 보고 제한 시간 뒤 `StoreBusyError` 가 된다. 오래 사는 프로세스에서는 자신의 pid 가 살아 있어 stale 로 회수되지 않으므로, 다음 획득 때 경로의 lock 이 자신이 해제하지 못한 token 이면 직접 정리한다. 같은 프로세스의 획득자 여럿이 동시에 정리하려 들 수 있으므로 프로세스 안에서 직렬화하고, 그 안에서 token 을 다시 확인한 뒤에만 없앤다(회수 절차와 같은 구조다). 정리도 계속 실패하면 제한 시간 뒤 `StoreBusyError` 다.
 - **획득 루프의 모든 경로는 제한 시간 검사를 거친다.** 회수를 시도했거나 자신의 lock 을 정리한 뒤에도 마찬가지다. 남은 `.reap` 때문에 회수가 되지 않는 경우에 2.2 가 말한 `StoreBusyError` 와 안내에 도달하려면 이것이 필요하다.
+- **회수하려는 stale lock 을 다른 프로그램이 붙들고 있어 옮기지 못하면** 길을 트지 못한 것으로 보고 제한 시간 뒤 `StoreBusyError` 와 안내로 끝난다. 자신의 lock 을 정리하지 못한 경우와 같은 결과다.
+- **lock 준비에 실패하면 준비용 디렉터리를 스스로 지운다.** 빈 준비용 디렉터리는 청소 대상이 아니므로 남기면 쌓인다.
 - **lock 을 준비하는 단계의 I/O 오류도 `StoreUnavailableError` 다.** `.locks/` 생성, 찌꺼기 청소, 준비용 디렉터리 쓰기가 모두 포함된다. 읽기 전용 매체에서의 쓰기와 lock 경로의 읽기가 여기에 해당한다.
 - **찌꺼기 청소**: 획득 준비용·해제용 임시 디렉터리(`.locks/.tmp-*`)가 crash 로 남으면, 프로세스마다 첫 획득 때 **소유자가 죽은 것이 확인된 것만** 지운다. `owner.json` 이 아직 없는 디렉터리는 살아 있는 프로세스가 막 준비하는 중일 수 있으므로 건드리지 않는다(그 상태로 죽은 것은 무해한 빈 디렉터리로 남는다).
 - **commit 은 줄 수와 마지막 seq 가 같은지 확인한다.** seq 는 1부터 빈틈없으므로 둘은 같아야 한다. 다르면 로그의 중간이 손상된 것이므로 그 위에 commit 을 더 쌓지 않고 `SchemaViolationError(read)` 로 멈춘다.

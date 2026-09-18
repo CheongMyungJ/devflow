@@ -1,12 +1,12 @@
 // lock 의 드문 경로 (store.md 2.2, 2.8). Gate G-004 가 찾은 결함의 회귀 테스트를 포함한다.
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SchemaViolationError, StoreBusyError, StoreError, StoreUnavailableError } from '../../src/store/errors.js';
 import { nodeFileOps } from '../../src/store/file/index.js';
-import { createSample, ioError, newStore, noteEvent, opsWith, tempDataDir } from './helpers.js';
+import { createSample, ioError, newStore, noteEvent, opsWith, snapshot, tempDataDir } from './helpers.js';
 
 /** 이미 끝난 프로세스의 pid. */
 async function deadPid(): Promise<number> {
@@ -110,6 +110,31 @@ describe('lock: 저장소 접근 실패는 StoreUnavailableError 로 나온다',
   });
 });
 
+describe('lock: 같은 장애는 같은 오류로 끝난다', () => {
+  it('죽은 소유자의 lock 을 다른 프로그램이 붙들고 있어 회수하지 못함 → 자신의 lock 을 못 치운 경우와 같이 StoreBusyError', async () => {
+    const dataDir = tempDataDir();
+    const task = await createSample(newStore(dataDir));
+    const lockDir = plantLock(dataDir, `${task.id}.lock`, { pid: await deadPid() });
+    const ops = opsWith({ rename: async (from, to) => (from.endsWith('.lock') ? Promise.reject(ioError('EBUSY')) : nodeFileOps.rename(from, to)) });
+
+    const outcome = await settlesWithin(3000, newStore(dataDir, { ops, lockTimeoutMs: 300 }).commit(task.id, { events: [noteEvent('x')] }).catch((e) => e));
+    expect(outcome).toBeInstanceOf(StoreBusyError);
+    expect((outcome as StoreBusyError).detail).toContain(`${task.id}.lock`);
+    expect(existsSync(lockDir)).toBe(true);
+    expect(existsSync(join(dataDir, '.locks', `${task.id}.reap`))).toBe(false); // 회수 전용 lock 은 풀고 물러났다
+  });
+
+  it('lock 준비에 실패하면 빈 준비용 디렉터리를 남기지 않는다', async () => {
+    const dataDir = tempDataDir();
+    const task = await createSample(newStore(dataDir));
+    const ops = opsWith({ writeFile: async (path, data) => (path.endsWith('owner.json') ? Promise.reject(ioError('ENOSPC')) : nodeFileOps.writeFile(path, data)) });
+    const store = newStore(dataDir, { ops });
+
+    for (let i = 0; i < 3; i++) await expect(store.commit(task.id, { events: [noteEvent('x')] })).rejects.toBeInstanceOf(StoreUnavailableError);
+    expect(readdirSync(join(dataDir, '.locks'))).toEqual([]);
+  });
+});
+
 describe('lock: 찌꺼기 청소는 죽은 것이 확인된 것만 지운다', () => {
   it('다른 프로세스가 막 준비 중인 디렉터리(owner.json 이 아직 없음)와 살아 있는 소유자의 것은 건드리지 않는다', async () => {
     const dataDir = tempDataDir();
@@ -135,9 +160,10 @@ describe('손상된 로그 위에 commit 을 쌓지 않는다', () => {
     const eventsFile = join(dataDir, task.id, 'events.jsonl');
     appendFileSync(eventsFile, `${JSON.stringify({ seq: 5, task_id: task.id, type: 'task.done', actor: 'system', at: '2026-01-01T00:00:00Z' })}\n`);
 
+    const before = snapshot(dataDir);
     const error = await store.commit(task.id, { events: [noteEvent('x')] }).catch((e) => e);
     expect(error).toBeInstanceOf(SchemaViolationError);
     expect(error.phase).toBe('read');
-    expect(existsSync(join(dataDir, task.id, '.rollbacks'))).toBe(false);
+    expect(snapshot(dataDir)).toEqual(before);
   });
 });
