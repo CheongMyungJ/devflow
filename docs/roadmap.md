@@ -12,11 +12,11 @@
 
 - [x] 구현 언어/런타임 결정 — TypeScript + Node LTS (ADR-0009)
 - [x] 프로젝트 골격: 스키마 → 타입 생성, Runner 인터페이스
-- [ ] 스키마 초안을 실제 Task 1~2개에 적용해 보고 수정 — T-0001 에 적용해 과부족을 찾았다(F1~F12 는 `design/store.md` 5절, 그 뒤의 것은 `retro/T-0001.md` 와 `devflow-data` 의 backlog). 수정의 첫 묶음(역할 세션 사이를 오가는 것 — Gate 의 지적 구조화, annotations, Run 의 수행 주체, packet_gaps, inputs 의 문법)은 T-0003 에서 했다(ADR-0012). 나머지는 backlog 2번에 남아 있다
+- [ ] 스키마 초안을 실제 Task 1~2개에 적용해 보고 수정 — T-0001 에 적용해 과부족을 찾았다(F1~F12 는 `design/store.md` 5절, 그 뒤의 것은 `retro/T-0001.md` 와 `devflow-data` 의 backlog). 수정의 첫 묶음(역할 세션 사이를 오가는 것 — Gate 의 지적 구조화, annotations, Run 의 수행 주체, packet_gaps, inputs 의 문법)은 T-0003 에서 했다(ADR-0012). 둘째 묶음(Task 양식의 의도의 칸과 두 단계 Intake)은 T-0004 에서 했다(ADR-0013, 0014). 나머지는 backlog 2번에 남아 있다
 - [x] Store 인터페이스 + 파일 구현체 — T-0001 (Task 와 Event. 나머지 엔티티는 후속 Task)
 - [x] commands / queries 최소 집합 — T-0001 (`createTask`, `getTask`, `listTasks`)
 
-수동으로 끝까지 수행한 Task: T-0001, T-0002, T-0003 (3 / 2~3). T-0002 부터 Planner·Worker·Reviewer 를 모두 Context 패킷만 받은 별도 세션으로 실행한다. T-0003 은 코드 변경이 있고 여러 Step 에 걸친 Task 에서 그 분리가 성립함을 확인했다(`retro/T-0003.md`). **스키마 변경은 시작되었고 아직 잦아들지 않았다** — T-0003 이 스키마를 바꾸면서 새 과부족이 또 나왔고(backlog 2번), Intake·Task 양식의 변경이 다음 Task 후보다. 넘어가는 기준의 앞쪽(Task 2~3개)은 찼고 뒤쪽(스키마 변경이 잦아들었다)은 아니다.
+수동으로 끝까지 수행한 Task: T-0001, T-0002, T-0003, T-0004 (4 / 2~3). T-0002 부터 Planner·Worker·Reviewer 를 모두 Context 패킷만 받은 별도 세션으로 실행한다. T-0003 은 코드 변경이 있고 여러 Step 에 걸친 Task 에서 그 분리가 성립함을 확인했다(`retro/T-0003.md`). **스키마 변경은 시작되었고 아직 잦아들지 않았다** — T-0003 이 스키마를 바꾸면서 새 과부족이 또 나왔고(backlog 2번), Intake·Task 양식의 변경을 T-0004 에서 했다(재작업 0, 역할 세션의 출력 일곱이 모두 한 번에 받아들여졌다, Orchestrator 대화 세션의 교체도 기록만으로 성립 — `retro/T-0004.md`). T-0004 에서도 스키마의 새 과부족이 나왔다(의도의 칸의 사후 검사, 생성 타입의 AC). 넘어가는 기준의 앞쪽(Task 2~3개)은 찼고 뒤쪽(스키마 변경이 잦아들었다)은 아니다.
 
 **넘어가는 기준**: 수동으로 Task 2~3개를 끝까지 수행했고, 스키마 변경이 잦아들었다.
 

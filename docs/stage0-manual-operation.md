@@ -19,6 +19,10 @@
 4. `git -C C:\git\devflow-data status` 와 `git -C <worktree> status` — commit 되지 않은 것이 있으면 이전 세션이 도중에 끊긴 것이다. 내용을 보고 이어 갈지 버릴지 정한다.
 5. `run.submitted` 는 있는데 `run.completed` 가 없는 Run 은 이전 세션과 함께 사라진 실행이다(서브에이전트는 세션을 넘지 못한다). 그 Run 을 `run.failed` 로 기록하고 다시 실행한다.
 
+### 대화 세션(Orchestrator)을 도중에 바꿀 때 (T-0004 — step-002 의 in_review 에서 한 번 성립했다)
+
+떠나는 세션이 Ledger 에 **"세션 인계" 절**을 쓰고 commit 한다: 지금 기다리는 것(사람의 무엇을, 앞 세션의 권고는 무엇이었나) / 그다음에 할 일(어느 역할을 어떤 모델로, 패킷에 넣을 것) / done 때 사람에게 보일 것 / merge 뒤의 순서 / 사람이 "반드시" 라고 한 것 / 회고에 남길 관찰. 새 세션은 위 1~5 로 복원한 뒤 **사람에게 상태와 기다리던 요청을 다시 보여 주고 확인받는다 — 앞 세션에서 사람이 한 말은 기록된 승인이 아니다.** 이어받은 사실과 부족했던 것을 그 절에 덧붙인다. 역할 세션이 실행 중일 때는 바꾸지 않는 편이 낫다(결과를 잃는다 — 5번).
+
 ### 역할 세션이 도중에 끊겼을 때 (T-0003 의 R-012 — 사용량 한도)
 
 1. Workspace 의 `git status` 와 작업 노트의 유무를 본다. commit 되지 않은 변경이 있으면 `git diff` 를 `steps/step-NNN/runs/R-NNN.partial.diff` 로 저장한 **뒤에** Workspace 를 마지막 commit 으로 되돌린다. 세션이 남긴 임시 디렉터리는 지운다.
@@ -26,8 +30,16 @@
 3. Run 을 `status: failed` 로, `run.failed` 이벤트를 남긴다. 실제로 끊긴 시각은 알 수 없으므로 `at` 이 "기록한 시각" 임을 note 에 적는다.
 4. 새 Run 으로 다시 실행한다. 패킷에 잔여물 두 파일을 "참고일 뿐이다 — 승인된 것도 검증된 것도 아니다" 로 넣는다. 버전을 만들지 못한 실행은 재작업 횟수로 세지 않는다.
 
-## 한 Step 의 절차
+## Task 를 발행할 때 (Intake — T-0004 부터 두 단계, ADR-0014)
 
+대화 세션이 `roles/intake.md` 를 따라 한다. 요지만 적는다 — 기준은 그 파일과 `schemas/task.schema.json` 의 description 이다.
+
+1. **의도 확인**: 7칸(문제 / 바라는 결과 / 식별 가능한 성공 기준 / 영향받는 사람과 시스템 / 제약 / 범위 밖 / 열린 질문)의 짧은 초안을 **AC 없이** 먼저 보여 주고 확인받는다. 모르는 것은 미리 묻지 말고 열린 질문 칸에 담당자(사람이 Intake 중에 / `planner_or_worker` / `investigation_step`)와 함께 적는다. 사람이 답할 질문에는 선택지와 권고를 붙이고, 무엇을 누가 지키게 되는지가 드러나게 쓴다(T-0004 의 Intake 에서 사람이 질문의 뜻을 되물었다 — intake.md 에는 아직 없다, backlog).
+2. **정의 확인**: 1단계가 맞은 뒤에만 AC 와 `target.scope_hint` 를 쓰고 AC 마다 `covers` 를 적는다. 발행 전 되짚기(intake.md 2단계 3번)는 스키마가 못 보는 것이라 손으로 한다.
+3. Task 정의에 다섯 칸(`problem`, `success_criteria`, `affected`, `non_goals`, `open_questions`)을 모두 적는다(없으면 빈 배열). 사람이 답할 질문이 남은 Task 는 스키마가 거부한다 — 오류 문장은 오타와 같으니 발행 전에 직접 확인한다. **범위 밖이나 맡긴 것을 constraints 에 끼워 넣지 않는다**(T-0002~T-0004 의 옛 기록은 그렇게 되어 있다. T-0004 는 의도 원문을 `intent.md` 로 따로 두었다 — 새 양식에서는 필요 없다).
+4. Intake 의 경과(초안을 사람이 고쳤는가, 되물은 것, 왕복 횟수)를 Ledger 의 운영 메모에 남긴다 — 회고의 재료다.
+
+## 한 Step 의 절차
 ```
 Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed)
   → 사람이 확인                                   step.defined
@@ -42,6 +54,7 @@ Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed
   → Planner 가 다음 행동 결정 (next_step / ask_human / done …)
 ```
 
+- **승인을 기록하는 순서**(T-0004 에서 새 대화 세션이 앞 Step 의 기록을 보고 찾아야 했다): 산출물마다 승인 Feedback 하나(`steps/step-NNN/feedback/F-NNN.yaml`, `kind: approval`, `target.artifact_ref` 에 버전까지, text 에 사람의 말과 받아들인 권고·한계) → meta 의 `approved: true` → `step.yaml` 의 `status: closed` → 이벤트: `feedback.added`(산출물마다) → `artifact.approved`(산출물마다, `data.gate`) → `step.status_changed` in_review→approved(`data.official_gate`) → approved→closed → `ledger.updated`.
 - **Ledger 의 Step 요약에는 세 가지를 적는다**: 무엇이 승인되었나(산출물 참조, 내용, 검증, 경과) / **뒤의 Step 이 알아야 할 것** / **상세가 있는 곳**(어느 Artifact 의 어느 절, 어느 Gate). 요약만 있고 상세의 위치가 없으면 다음 Planner 가 헤맨다(T-0003 의 R-006 → 고친 뒤 R-009, R-015 는 "다음 행동은 Ledger 만으로 정해졌다"). "진행 중" 절에 옛 줄을 남기지 않는다. 뒤로 넘기는 지적은 나올 때마다 Ledger 의 "후속 Task 후보" 에도 적는다(T-0003 에서는 끝까지 비어 있었다).
 - **누가 수행했는지 사실대로 적는다.** Ledger 의 운영 메모에 수행 주체를 적는다. 대화 세션이 역할을 겸한 일이 있으면(T-0001 이 그랬다) 그렇게 쓴다.
 - **Reviewer 에게 주는 것**: `roles/reviewer.md`, Task·Step 정의, 검토 대상 commit 과 diff 명령, 이전 Gate, Worker 의 작업 노트(특히 "확인하지 못한 것" — 지금까지 실제 결함은 모두 여기서 나왔다), deterministic 결과. 확인하는 방법("실행해서 확인", "'확인하지 못한 것' 을 먼저 공격", 임시 디렉터리 하나, 고쳐 보는 확인은 복사본에서)과 출력의 형식은 T-0003 부터 `roles/reviewer.md` 에 있다 — **패킷에 다시 쓰지 않는다. 패킷이 지침과 다른 형식을 말하면 출력이 거부된다**(아래 "Reviewer 출력의 형식").
@@ -59,7 +72,7 @@ Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed
 
 ## Context 패킷
 - 역할 지침: roles/<역할>.md 의 경로
-- Task 정의, (Planner) Ledger, (Worker·Reviewer) Step 정의의 경로
+- Task 정의(새 양식이면 의도의 칸 — problem, success_criteria, affected, non_goals, open_questions — 이 그 안에 있다. 역할 지침이 읽는 법을 말한다), (Planner) Ledger, (Worker·Reviewer) Step 정의의 경로
 - Step 의 inputs: 참조 → 로컬 위치 (task.brief → task.yaml, code://<repo>@<sha> → worktree 또는 읽기 전용 clone. 기준은 SHA 다)
 - (Planner) 직전 Step 의 공식 Gate, Feedback, 이전 Decision, Skill 카탈로그(지금은 비어 있다), 남은 한도
 - (재작업 Worker) 이전 버전의 commit 과 meta, 이전 실행의 작업 노트, Feedback, Gate
@@ -124,7 +137,7 @@ Run 기록은 세션을 띄우기 **전에** `status: submitted` 로 쓰고(`run
 
 ## Task 를 끝낼 때
 
-Planner 의 `done` 결정(AC 별 근거 — Planner 에게 AC 의 검사 명령을 주어 최종 commit 에서 직접 다시 확인하게 한다) → 사람의 최종 확인(AC 만이 아니라 **Intake 때 사람이 원한다고 한 것과 대조**해 보여 준다) → task branch 를 main 에 merge(또는 PR) → merge 뒤 main 에서 typecheck·test·validate-data → **Task 가 이 repo 의 운영 도구·역할 지침·스키마를 바꿨으면 merge 직후에 이 문서를 고친다**(Task 밖의 운영 commit. 안 고치면 다음 세션이 옛 틀로 패킷을 쓴다) → worktree 정리 → `docs/retro/T-NNNN.md` 작성(템플릿은 `retro/README.md`) → `roadmap.md` 의 체크리스트 갱신 → **Ledger 의 "후속 Task 후보" 와 회고의 개선 조치를 `devflow-data/backlog.md` 로 옮긴다.** Ledger 는 Task 와 함께 닫히므로 거기에만 적힌 것은 잊힌다.
+Planner 의 `done` 결정(AC 별 근거 — Planner 에게 AC 의 검사 명령을 주어 최종 commit 에서 직접 다시 확인하게 한다. '데이터 repo 의 모든 Task' 같은 AC 는 그때의 데이터 repo HEAD 로 읽기 전용 checkout 을 새로 만들어 준다. 패킷에 '새 세션을 띄우지 않는다' 를 넣는다) → 사람의 최종 확인(AC 만이 아니라 **Intake 때 사람이 원한다고 한 것과 대조**해 보여 준다 — Task 의 `success_criteria` 원문(옛 양식이면 의도 확인 원문) 한 줄마다 결과와 남는 한계를 나란히. Planner 의 done 은 AC 만 본다) → task branch 를 main 에 merge(또는 PR) → merge 뒤 main 에서 typecheck·test·validate-data → **Task 가 이 repo 의 운영 도구·역할 지침·스키마를 바꿨으면 merge 직후에 이 문서를 고친다**(Task 밖의 운영 commit. 안 고치면 다음 세션이 옛 틀로 패킷을 쓴다) → worktree 정리 → `docs/retro/T-NNNN.md` 작성(템플릿은 `retro/README.md`) → `roadmap.md` 의 체크리스트 갱신 → **Ledger 의 "후속 Task 후보" 와 회고의 개선 조치를 `devflow-data/backlog.md` 로 옮긴다.** Ledger 는 Task 와 함께 닫히므로 거기에만 적힌 것은 잊힌다.
 
 ## 다음에 무엇을 할지
 
