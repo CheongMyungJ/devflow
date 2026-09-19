@@ -1,7 +1,7 @@
 # State Store 설계
 
 - 인터페이스: `src/store/types.ts`, 오류: `src/store/errors.ts`
-- 대상: T-0001 (Task + 이벤트). 나머지 엔티티는 3절의 방식으로 추가한다.
+- 대상: T-0001 (Task + 이벤트). 나머지 엔티티(Step, Decision, Feedback, GateResult, Run, Artifact)와 blob, Task 안의 ID 발급, 덮어쓰기 방지, commit 식별자는 T-0005 에서 설계했다(3절).
 
 ## 0. 핵심 결정
 
@@ -33,8 +33,8 @@
 - `change` 를 함수로 주면 배타적 접근을 얻은 뒤의 `lastSeq` 를 보고 Change 를 만들 수 있다. 함수는 동기·무부작용이고 여러 번 호출될 수 있다.
 - 검증: 모든 writes 는 해당 엔티티 스키마로, 모든 events 는 seq/task_id 부여 후 event 스키마로 검증한다. writes 의 엔티티가 다른 Task 에 속하면 `InvalidChangeError`.
 - 멱등 아님. 같은 Change 를 두 번 commit 하면 이벤트가 두 번 기록된다. 멱등성이 필요한 호출자(`advance`)는 `expectedLastSeq` 를 쓴다 — 두 번째 호출은 `ConflictError` 가 된다.
-- 오류: `TaskNotFoundError`, `ConflictError`, `SchemaViolationError(write)`, `InvalidChangeError`, `StoreBusyError`. **`CommitOutcomeUnknownError` 가 아닌 모든 오류는 — 여기 나열되지 않은 I/O 오류까지 포함해 — 아무것도 기록되지 않았음을 뜻한다.** 이것이 인터페이스의 계약이고 `createTask` 에도 똑같이 적용된다.
-- 결과를 알 수 없는 경우: 기록 도중 I/O 오류가 났고 성립 여부를 그 자리에서 판정하지 못하면 `CommitOutcomeUnknownError` 를 던진다. 호출자는 `readEvents` 로 성립 여부를 확인해야 한다. 어느 쪽으로든 Store 의 상태는 다음 접근에서 일관되게 복구된다. (DB 구현체에서는 COMMIT 도중 연결이 끊긴 경우에 해당한다.)
+- 오류: `TaskNotFoundError`, `ConflictError`, `SchemaViolationError(write)`, `InvalidChangeError`, `AlreadyExistsError`(3.2, T-0005), `StoreBusyError`. **`CommitOutcomeUnknownError` 가 아닌 모든 오류는 — 여기 나열되지 않은 I/O 오류까지 포함해 — 아무것도 기록되지 않았음을 뜻한다.** 이것이 인터페이스의 계약이고 `createTask` 에도 똑같이 적용된다.
+- 결과를 알 수 없는 경우: 기록 도중 I/O 오류가 났고 성립 여부를 그 자리에서 판정하지 못하면 `CommitOutcomeUnknownError` 를 던진다. 호출자는 `readEvents` 로 성립 여부를 확인해야 한다(오류에 담긴 commit 식별자로 — 3.5, `docs/design/commands.md` 3절). 어느 쪽으로든 Store 의 상태는 다음 접근에서 일관되게 복구된다. (DB 구현체에서는 COMMIT 도중 연결이 끊긴 경우에 해당한다.)
 - commit 이 성립한 뒤의 뒷정리 실패는 오류가 아니다. `commit()` 은 성공을 돌려주고 뒷정리는 다음 접근이 마친다(2.4, 2.5).
 
 ### `get(kind, key)` / `list(kind, scope)`
@@ -54,7 +54,7 @@
 
 ## 2. 파일 구현체 설계
 
-### 2.1 배치 (`devflow-data/README.md` 와 동일)
+### 2.1 배치 (Task 와 이벤트. 나머지 엔티티와 blob 의 위치는 3.1, 3.3)
 
 ```
 <dataDir>/
@@ -208,7 +208,7 @@ step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Win
 | I3 | 장애 재현 방법 | 파일 시스템 연산을 `FileOps` 인터페이스 뒤에 두었다. I/O 오류는 테스트가 `FileOps` 를 감싸 주입하고, crash 는 **실제 자식 프로세스를 그 지점에서 `process.exit` 시켜** 만든다(lock 과 `.pending` 이 남은 채 pid 가 죽는다). 2.4 와 2.5 의 표의 각 행에 테스트가 있다 |
 | I4 | 동시성 테스트 | 별도 프로세스 6개를 barrier 파일로 동시에 출발시킨다. 같은 Task 에 90개의 commit, 동시 `createTask` 48개. 이벤트가 프로세스 간에 섞였는지도 확인해 경합이 실제로 일어났음을 보인다 |
 | I5 | 기본값 | lock 제한 시간 5초, 획득 재시도 간격 10~50ms(방금 해제된 경우 1ms), rename/삭제의 일시적 오류 재시도는 지수 백오프로 총 1초. `FileStoreOptions` 의 `lockTimeoutMs`, `transientRetryMs` 로 바꾼다 |
-| I6 | `CommitOutcomeUnknownError` 뒤의 확인 규약 | 오류의 `firstSeq` 로 `readEvents({ afterSeq: firstSeq - 1 })` 를 읽어 자신이 보낸 이벤트와 내용이 같으면 성립한 것이다. 절차와 "다른 호출자의 이벤트를 오인하지 않는가" 에 대한 논의는 `docs/design/commands.md` 3절, 구현은 `src/commands/outcome.ts`. 식별자 부재는 5절 F12 |
+| I6 | `CommitOutcomeUnknownError` 뒤의 확인 규약 | 오류의 `firstSeq` 로 `readEvents({ afterSeq: firstSeq - 1 })` 를 읽어 자신이 보낸 이벤트와 내용이 같으면 성립한 것이다. 절차와 "다른 호출자의 이벤트를 오인하지 않는가" 에 대한 논의는 `docs/design/commands.md` 3절, 구현은 `src/commands/outcome.ts`. 식별자 부재는 5절 F12. T-0005 에서 내용 비교가 commit 식별자 비교로 바뀐다(3.5, commands.md 3절) |
 | I7 | `StoreBusyError` 의 안내 | `detail` 에 소유자의 pid 와 획득 시각, 지워야 할 경로(`.lock`, 남아 있다면 `.reap`), "다른 devflow 프로세스가 실행 중이 아닌 것을 확인한 뒤" 라는 조건을 담는다 |
 
 구현하며 추가로 정한 것:
@@ -227,25 +227,264 @@ step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Win
 - **commit 은 줄 수와 마지막 seq 가 같은지 확인한다.** seq 는 1부터 빈틈없으므로 둘은 같아야 한다. 다르면 로그의 중간이 손상된 것이므로 그 위에 commit 을 더 쌓지 않고 `SchemaViolationError(read)` 로 멈춘다.
 - **엔티티의 상대 위치는 항상 `/` 로 구분한다.** `commit.json` 의 `files[].final` 에 그대로 저장되므로 `dataDir` 을 다른 OS 로 옮겨도 복구가 읽을 수 있어야 한다.
 
-## 3. 나머지 엔티티의 추가
+## 3. 나머지 엔티티 (T-0005 에서 확정한 설계)
 
-`EntityMap` / `EntityKeyMap` / `EntityScopeMap` 에 항목을 추가하고, 파일 구현체에 "kind → 파일 위치·스키마" 매핑을 추가한다. `Store` 의 메서드는 바뀌지 않는다.
+T-0005 step-001 의 설계다. 구현은 뒤의 Step 이 하고, 구현하며 바뀐 것은 이 절을 고쳐 반영한다. 근거(기존 기록의 조사, 버린 대안, 실험)는 그 Step 의 작업 노트에 있다.
 
-| kind | key | scope (list) | 파일 위치 |
-|---|---|---|---|
-| `step` | `{ taskId, stepId }` | `{ taskId, status? }` | `steps/<stepId>/step.yaml` |
-| `decision` | `{ taskId, id }` | `{ taskId }` | `decisions/<id>.yaml` |
-| `feedback` | `{ taskId, id }` | `{ taskId, stepId?, kind? }` | `steps/<stepId>/feedback/<id>.yaml` 또는 Task 수준(5절 F4) |
-| `gate_result` | `{ taskId, stepId, id }` | `{ taskId, stepId }` | `steps/<stepId>/gates/<id>.yaml` |
-| `run` | `{ taskId, id }` | `{ taskId, stepId?, role? }` | `steps/<stepId>/runs/<id>.yaml` |
-| `artifact` | `{ ref }` (`artifact://…@vN`) | `{ taskId, stepId, name? }` | `steps/<stepId>/artifacts/<name>/v<N>.meta.yaml` |
+원칙은 T-0001 에서 정한 그대로다 — **기존 메서드(`createTask`, `commit`, `get`, `list`, `readEvents`)의 시그니처는 바꾸지 않고 추가만 한다.** 새 kind 는 `EntityMap` / `EntityKeyMap` / `EntityScopeMap` 의 항목으로, 새 기능은 `CommitContext`·`Change`·`CommitResult` 의 멤버와 새 메서드 `getBlob` 으로 더한다. 파일 위치는 파일 구현체만 안다(AGENTS.md 2번). 아래 표의 "파일 위치" 열은 파일 구현체의 규칙이고, 인터페이스에는 key 와 scope 만 나타난다.
 
-추가로 필요해질 것(이번 범위 밖, 모두 **추가**이지 변경이 아니다):
+### 3.1 kind 별 key·scope·파일 위치
 
-- **Task 내부 ID 발급** (`D-001`, `F-001`, `G-001`, `R-001`, Artifact 버전): `CommitContext` 에 `nextId(kind)` 를 추가한다. commit 의 함수 형태를 지금 둔 이유다.
-- **내용물(blob)**: 문서 산출물 본문, transcript, 검증 로그. 스키마의 `content_key` / `transcript_key` / `log_key` 가 가리키는 대상이다. `putBlob(taskId, content) → key`, `getBlob(key)` 를 추가하고, blob 은 불변이므로 commit 밖에서 먼저 쓰고 그 key 를 엔티티에 담아 commit 한다(참조되지 않는 blob 은 무해한 쓰레기다).
+파일 위치는 Task 디렉터리(`<dataDir>/T-NNNN/`) 기준이다.
+
+| kind | key | scope (list) | 파일 위치 | 불변 |
+|---|---|---|---|---|
+| `task` | `{ taskId }` | `{ status? }` | `task.yaml` | 아니다 |
+| `step` | `{ taskId, stepId }` | `{ taskId, status? }` | `steps/<stepId>/step.yaml` | 아니다 |
+| `decision` | `{ taskId, id }` | `{ taskId }` | `decisions/<id>.yaml` | **불변** |
+| `feedback` | `{ taskId, id }` | `{ taskId, stepId?, kind? }` | `step_id` 가 있으면 `steps/<step_id>/feedback/<id>.yaml`, 없으면 `feedback/<id>.yaml` | 아니다 |
+| `run` | `{ taskId, id }` | `{ taskId, stepId?, role? }` | `step_id` 가 있으면 `steps/<step_id>/runs/<id>.yaml`, 없으면 `runs/<id>.yaml` | 아니다 |
+| `gate_result` | `{ taskId, stepId, id }` | `{ taskId, stepId? }` | `steps/<stepId>/gates/<id>.yaml` | **불변** |
+| `artifact` | `{ ref }` (`artifact://<task>/<step>/<name>@v<N>`) | `{ taskId, stepId?, name? }` | `steps/<step>/artifacts/<name>/v<N>.meta.yaml` | **불변** |
+| (blob) | `blob:<key>` 문자열 | — | 3.3 | **불변** |
+
+- **ID 의 모양**: Step `step-NNN`, Decision `D-NNN`, Feedback `F-NNN`, Run `R-NNN`, GateResult `G-NNN`(모두 3자리 0 채움, 999 를 넘으면 자릿수가 늘어난다), Artifact 버전은 1부터의 정수. 파일 구현체는 ID 를 파일 이름으로 쓰므로 쓰기 전에 이 모양을 확인한다(아니면 `InvalidChangeError`).
+- **ID 는 Task 안에서 kind 마다 유일하다.** Step 수준과 Task 수준이 번호를 나눠 쓴다(예: T-0002 의 Run 은 Task 수준 R-001·R-006, Step 수준 R-002~R-005). GateResult 의 번호도 Step 을 가로질러 이어진다(T-0001 의 G-001~G-007). 기존 기록 T-0001~T-0005 에 겹치는 ID 는 없다.
+- **Run·Feedback 의 key 에는 stepId 가 없다 (G-001 의 첫째 우려).** 두 수준이 있는 kind 는 key 가 Task 안의 ID 이고, 수준(어느 Step 에 속하는지)은 값의 `step_id` 필드다. 쓸 때는 값의 `step_id` 로 위치가 정해진다. `get` 은 파일 구현체가 `runs/<id>.yaml` 과 `steps/*/runs/<id>.yaml` 을 찾아 본다 — 없으면 `undefined`, 하나면 그것, 둘 이상이면 손상이므로 `SchemaViolationError(read)`. key 에 stepId 를 넣지 않은 이유: Run·Feedback 은 기록 곳곳에서 ID 만으로 가리켜진다(`Artifact.run_id`, `GateResult.reviewer_run_id`, `Decision.planner_run_id`, `Feedback.target.run_id`, `Feedback.response_run_id`, AC 의 `added_by`). 호출자가 수준을 몰라도 찾을 수 있어야 하고, DB 의 기본 키도 `(task_id, id)` 가 된다.
+- **GateResult 는 key 에 stepId 를 둔다.** Gate 는 언제나 Step 수준이고, 가리키는 문법(`gate://<task>/<step>/<gate-id>`)이 Step 을 담고 있다. ID 가 Task 안에서 유일하다는 규칙은 같다.
+- **scope 의 `stepId`**: `feedback`·`run` 에서 생략하면 두 수준 모두, `null` 이면 Task 수준만, 문자열이면 그 Step 만. `gate_result`·`artifact` 에서 생략하면 Task 의 모든 Step.
+- **`list` 는 이름이 그 kind 의 모양인 파일만 읽는다.** `runs/` 에서는 `R-NNN.yaml` 만 Run 이고, `gates/` 에서는 `G-NNN.yaml` 만 GateResult 다. 같은 디렉터리의 다른 파일(`R-002.work-notes.md`, `R-003.output.json`, `G-001.deterministic.md` 등)은 blob 이므로 어떤 kind 의 `items` 에도 `invalid` 에도 세지 않는다. 모양이 맞는데 스키마를 위반한 파일은 `invalid` 에 담긴다(1절). 순서는 ID 의 번호 순, Artifact 는 (Step, 이름, 버전) 순.
+- **쓰기 때의 추가 확인**(모두 `InvalidChangeError` — 호출자의 버그): 값의 `task_id` 가 commit 의 Task 와 같다(지금도 한다), Artifact 의 `ref` 가 `task_id`·`step_id`·`name`·`version` 과 맞는다, 한 Change 안에 같은 key 를 두 번 쓰지 않는다.
+- **Store 가 다루지 않는 파일**: `ledger.md`, T-0004 의 `intent.md`, 데이터 repo 최상위의 `projects.yaml`·`backlog.md`·`README.md`. `list` 는 이것들을 보지 않는다. Ledger 를 Store 로 옮기는 것은 이 Task 의 범위가 아니다.
+
+**README 의 배치와 실제 기록이 다른 곳 — 실제 기록을 따른다.** 이유: 기존 기록을 고치지 않고 모든 kind 로 읽어야 하고(T-0005 의 S5, S6), 기존 기록의 `content_key` 가 이미 실제 파일(`runs/R-NNN.work-notes.md`)을 가리킨다. README 는 이 Task 가 merge 된 뒤 이 절에 맞춘다.
+
+| README | 실제 기록 (T-0001~T-0005) | 이 설계 |
+|---|---|---|
+| 문서 본문 `artifacts/<name>/v1.md` | 없다. 본문은 그것을 만든 Run 의 `runs/R-NNN.work-notes.md` 이고 meta 의 `content_key` 가 가리킨다 | 실제를 따른다. 문서 본문은 만든 Run 이 소유한 blob 이다(3.3). `v<N>.md` 는 쓰지 않는다 |
+| Gate 로그 `gates/G-001.logs/` | 없다. `gates/G-NNN.deterministic.md` 가 있다 | 실제를 따른다. Gate 의 로그는 그 Gate 가 소유한 blob `G-NNN.<name>` 이다 |
+| `runs/R-002.transcript.jsonl` | 없다(transcript 를 남긴 적이 없다) | 3.3 의 규칙이 그대로 받는다(`R-002.transcript.jsonl` 은 `transcript` + `.jsonl`) |
+| 없음 | `runs/` 의 `R-NNN.output.yaml`(Task 수준), `R-NNN.output.json`, `.probe.md`, `.failed.md`, `.partial.diff` | 모두 Run 이 소유한 blob 이다 |
+| `feedback/`, `runs/`(Task 수준) | 있다 | 같다 |
+
+### 3.2 덮어쓰기 방지
+
+**불변은 kind 별로 Store 의 계약으로 정한다.** 쓰기마다 모드를 주지 않는다 — Change 의 모양과 `commit` 의 시그니처가 그대로이고, 호출자가 모드를 빠뜨려 덮어쓰는 길이 없고, DB 구현체에서는 insert-only 제약으로 옮겨진다.
+
+| kind | 불변 | 근거 (데이터 repo 의 git 이력에서 같은 파일이 다시 쓰였는가) |
+|---|---|---|
+| `artifact` | 불변 | 다시 쓰인 것은 승인 때의 `approved: false → true` 뿐이다(아래). 산출물의 버전은 한 번 만들면 바뀌지 않아야 승인이 "특정 버전" 을 가리킬 수 있다(AGENTS.md 8번) |
+| `gate_result` | 불변 | 다시 쓰인 적이 없다. 특정 버전에 대한 판정이다 |
+| `decision` | 불변 | 다시 쓰인 적이 없다. Planner 의 원래 제안이다. `human_edit` 을 나중에 채우는 쓰임과는 부딪친다 — 작업 노트의 "사람이 고를 것" |
+| blob | 불변 | 다시 쓰인 적이 없다. 엔티티가 key 로 가리키는 내용이다 |
+| `task`, `step`, `run` | 가변 | `step.yaml` 36회, Run 20회, `task.yaml` 4회 다시 쓰였다(상태 전이, 종료 시각, packet_gaps) |
+| `feedback` | 가변 | 다시 쓰인 적은 없지만 스키마가 나중에 채우는 필드를 가진다(`response`, `response_source`, `response_run_id`, `promoted_to`) |
+
+- **계약**: 불변 kind 의 이미 있는 key 에 쓰거나 이미 있는 blob key 에 쓰는 commit 은 `AlreadyExistsError` 로 거부된다. 그 commit 의 어떤 쓰기도 이벤트도 기록되지 않는다(1절의 "`CommitOutcomeUnknownError` 가 아닌 모든 오류는 아무것도 기록되지 않았음을 뜻한다" 에 들어간다). 내용이 같아도 거부한다.
+- **Task 안의 ID 유일성도 같은 오류다**: 다른 자리(다른 수준이나 다른 Step)에 같은 ID 의 기록이 있으면 가변 kind 라도 `AlreadyExistsError` 다. 예: Step 수준의 R-002 가 있는데 `step_id` 없는 R-002 를 쓰는 것, step-001 에 G-003 이 있는데 step-002 의 G-003 을 쓰는 것. 가변 kind 가 같은 자리의 같은 key 에 쓰는 것은 교체다.
+- `AlreadyExistsError` 를 따로 두는 이유: `ConflictError`(다시 읽고 판단해 재시도), `InvalidChangeError`(버그)와 호출자가 할 일이 다르다. 결과를 모르는 채 다시 보낸 Gate 기록처럼 "이미 있다" 가 곧 원하던 상태일 수 있다 — 호출자는 `get` 으로 확인할 수 있다.
+- **파일 구현체**: 2.4 의 4단계(lock 안, 디스크를 건드리기 전)에서 확인한다. 1단계의 복구가 끝난 뒤이므로 디스크가 기준이다(뒷정리가 남은 경우에는 commit 을 쌓지 않고 물러난다 — 2.9).
+- **Artifact 의 `approved` (승인 때 사람이 고른다)**: 지금의 0단계는 승인 때 meta 의 `approved` 를 같은 파일에서 `false → true` 로 다시 쓴다(기존 meta 34개 중 19개가 true). 이 절은 권고안 (A) 로 적는다 — **승인은 Artifact 밖의 기록(`kind: approval` 인 Feedback 과 `artifact.approved` 이벤트)으로만 나타낸다.** 두 기록은 지금도 승인 19건 모두에 있다. Store 는 Artifact meta 를 다시 쓰지 않고, `approved` 는 옛 기록을 읽기 위한 필드로 남는다. 사람이 (B) "`approved` 의 `false → true` 한 방향 전이만 허용" 을 고르면 이 항목만 바뀐다: Store 가 lock 안에서 저장된 meta 를 읽어 `approved` 말고는 같고 `false`(또는 없음)에서 `true` 로 가는 쓰기만 받는다. 선택지와 결과는 작업 노트에 있다.
+
+### 3.3 blob
+
+문서 본문, 작업 노트, Run 의 출력 파일, 실측 기록, 검증 로그, transcript 처럼 엔티티가 key 로 가리키는 내용이다. 엔티티가 아니므로 `get`/`list` 의 kind 가 아니다.
+
+**key 의 문법**은 새로 만들지 않았다 — step 스키마의 `blob:<key>` 문법과 기존 기록의 `content_key`·`work_notes_key`(예: `blob:T-0004/step-001/R-002.work-notes`) 그대로다. 그 문법 안에서 Store 가 쓰는 key 는 다음 모양이다.
+
+```
+blob:<taskId>/<stepId>/<owner>.<name>     Step 수준
+blob:<taskId>/<owner>.<name>              Task 수준 (Run 만)
+  <owner> = R-NNN (Run) | G-NNN (GateResult)       — blob 을 소유한 기록
+  <name>  = <label> | <label>.<ext>
+  <label> = 영숫자로 시작하고 영숫자·_·- 만 (점 없음). <ext> 와 md 는 label 이 될 수 없다
+  <ext>   = json | yaml | jsonl | diff | txt | log
+```
+
+**key → 파일** (파일 구현체):
+
+- 소유자가 `R-` 면 `runs/`, `G-` 면 `gates/`. `<stepId>` 가 있으면 `steps/<stepId>/` 아래, 없으면 Task 디렉터리 바로 아래. Gate 는 언제나 Step 수준이다.
+- 파일 이름은 `<owner>.<name>` 이고, `<ext>` 가 없으면(Markdown) 뒤에 `.md` 를 붙인다. `.md` 를 key 에 쓰지 않는 것은 기존 key(`R-002.work-notes`, `R-005.probe`)가 그렇게 쓰였기 때문이다.
+- label 에 점을 금하고 확장자를 label 로 금하는 이유: `R-002.yaml`(Run 기록 자체)이나 `R-002.work-notes.md` 를 key 로 만들 수 있으면 한 파일이 두 key 로, 또는 엔티티와 blob 으로 동시에 읽힌다. 이 규칙이면 파일과 key 가 일대일이다.
+- 기존 기록의 blob 47개가 모두 이 규칙으로 풀린다(작업 노트의 실험). 이름별: `work-notes` 16, `output.yaml` 10, `output.json` 9, `deterministic` 9(gates/), `probe` 1, `failed` 1, `partial.diff` 1. 기록이 key 로 가리키는 17개(`content_key`, `work_notes_key`, Step 의 inputs)도 모두 파일로 풀린다.
+
+**쓰기 — commit 안에서 한다.** `Change.blobs` 에 담으면 엔티티 쓰기와 같은 절차(2.4 의 tmp → rename)로 같은 commit 에 원자적으로 기록된다. T-0001 의 방향("commit 밖에서 먼저 쓰고 key 를 엔티티에 담아 commit")을 바꾼 이유:
+
+- 소유자의 ID 가 commit 안에서 발급된다(3.4). Gate 의 로그 `G-NNN.deterministic` 은 그 Gate 의 ID 를 알아야 쓸 수 있는데 ID 는 `nextId` 로 commit 안에서야 정해진다. commit 밖에서 먼저 쓰려면 ID 를 미리 짐작해야 하고, 짐작이 틀리면 남의 Gate 의 blob 자리를 차지한다.
+- 엔티티와 그것이 가리키는 blob 이 함께 기록되거나 함께 기록되지 않는다. 참조되지 않는 blob 도, 없는 blob 을 가리키는 엔티티도 생기지 않는다.
+- 불변 검사(이미 있는 key 인가)를 lock 안에서 엔티티와 같은 방식으로 한다. lock 밖에서 no-clobber 생성을 따로 보장할 필요가 없다.
+- 대가: 큰 blob(transcript)을 쓰는 동안 그 Task 의 lock 을 쥔다. 파일 구현체의 commit 이 밀리초에서 그 파일을 쓰는 시간만큼 길어진다.
+
+쓸 때 확인하는 것: 소유자의 `taskId` 가 commit 의 Task 와 같다, `name` 이 위 문법에 맞는다, 한 Change 에 같은 key 가 두 번 없다(모두 `InvalidChangeError`), key 가 이미 없다(`AlreadyExistsError`). 소유자 기록(Run, GateResult)이 이미 있는지는 확인하지 않는다 — Gate 와 그 로그처럼 같은 commit 에서 함께 생길 수 있다.
+
+**읽기** — `getBlob(ref)`: 없으면 `undefined`. 문법에 맞지 않는 key 도 `undefined`(그런 blob 은 없다). 2.7 의 읽기 절차를 따르므로 commit 과 겹친 읽기는 버리고, 뒷정리가 남은 경우 `.pending` 의 tmp 를 읽는다. 내용은 바이트로 돌려주고 해석(UTF-8, JSON 등)은 호출자가 이름으로 안다.
+
+호출자가 commit 전에 key 를 알아야 엔티티(`content_key`, `log_key`)에 담을 수 있으므로, key 를 만드는 순수 함수 `blobRef(owner, name)` 을 인터페이스 쪽(`src/store/`, 파일 지식 없음)에 둔다. key 의 문법은 인터페이스의 일부이고 파일 위치는 아니다.
+
+### 3.4 Task 안의 ID 발급
+
+- `commit` 의 함수 형태가 받는 `CommitContext` 에 `nextId(kind)` 와 `nextArtifactVersion(stepId, name)` 을 더한다. `createTask` 의 `build` 에는 없다(첫 commit 은 Task 와 이벤트만 쓴다).
+- **규칙**: kind 마다 Task 안에서 이미 있는 가장 큰 번호의 다음. 빈 번호를 채우지 않는다. Run·Feedback 은 두 수준을 합쳐서, GateResult 는 모든 Step 을 합쳐서 센다. blob 의 소유자 ID(`R-012.failed.md` 의 R-012 등)도 센다 — 기록 없이 blob 만 있는 ID 를 다시 내주면 그 blob 과 부딪치기 때문이다. Artifact 버전은 (Step, 이름) 마다 `v<N>.meta.yaml` 의 가장 큰 N 의 다음(1부터).
+- **같은 컨텍스트에서 다시 부르면 다음 번호**를 준다(한 commit 에서 Run 둘을 만드는 경우). 함수가 다시 호출되면(구현체의 재시도) 새 컨텍스트로 처음부터 센다.
+- **동시 commit 에서 겹치지 않는 이유**: 번호는 Task 의 lock 을 쥔 뒤의 디스크 상태로 세고, 발급한 ID 의 기록은 같은 commit 에서 쓰인다. 같은 Task 의 commit 은 직렬화되므로(2.2) 다음 commit 은 앞 commit 이 쓴 기록을 보고 센다. 발급하고 쓰지 않은 ID 는 소비되지 않는다 — commit 이 실패하거나 그 ID 로 쓰지 않으면 다음 commit 이 같은 번호를 다시 준다(Task ID 의 발급과 달리 연속이다). 3.2 의 유일성 검사가 `nextId` 를 쓰지 않은 호출자의 겹침도 막는다.
+- **파일 구현체**: `nextId` 는 동기 함수다(`ChangeInput` 이 동기이므로). 그래서 함수 형태의 Change 를 받으면 함수를 부르기 전에, lock 을 쥔 상태에서 Task 디렉터리의 목록(`decisions/`, `feedback/`, `runs/`, `steps/*/{feedback,runs,gates}/`, `steps/*/artifacts/*/`)을 읽어 둔다. 기록 수십~수백 개의 목록이므로 비용은 작다.
+
+### 3.5 commit 식별자 (5절 F12)
+
+- **이름과 자리**: Event 의 `commit_id`. Event 스키마의 선택 필드다 — 옛 이벤트에는 없고 고칠 수 없다.
+- **모양**: UUID 의 소문자 문자열(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`). 파일 구현체는 `crypto.randomUUID()`(버전 4, 난수 122비트)로 만든다. 여러 프로세스가 조율 없이 만들어도 겹치지 않고, 시각·호스트·경로를 담지 않는다. Store 는 시계를 읽지 않으므로(1절) 시각이 들어가는 형식(UUID v7, ULID)은 쓰지 않는다. 패턴은 버전을 고정하지 않아 DB 구현체가 자기 방식의 UUID 를 쓸 수 있다.
+- **부여**: `commit()` 과 `createTask()` 의 호출마다 Store 가 하나를 만들어 그 commit 의 모든 이벤트에 같은 값을 넣는다. 구현체가 안에서 재시도해 `ChangeInput` 을 다시 부르더라도 한 호출의 값은 같다. 호출자는 주지 않는다 — `NewEvent` 에서 `commit_id` 를 뺀다. 타입을 우회해 이벤트에 `commit_id` 를 담아 보내면 `InvalidChangeError`.
+- **보이는 곳**: `CommitResult.commitId`, `CommitOutcomeUnknownError.commitId`, 기록된 이벤트의 `commit_id`. `createTask` 의 반환 타입은 바꾸지 않는다(시그니처 유지) — 돌려주는 `events[].commit_id` 에 있다.
+- **옛 이벤트와의 공존**: 확인하는 쪽은 언제나 자기 commit 의 새 식별자를 찾는다. 식별자가 없는 이벤트는 어떤 식별자와도 같지 않으므로 "내 것이 아니다" 로 읽히고, 따로 가르는 장치가 없다. 0단계의 운영 스크립트(append-events)는 `commit_id` 를 쓰지 않으므로 merge 뒤에도 그 스크립트가 쓴 이벤트는 식별자가 없다.
+- **`.pending` 의 token 과의 관계**: 별개다. token 은 lock 획득마다의 난수로 파일 구현체 안의 개념이다(읽기가 잡는 lock 에도 있고 DB 구현체에는 없다). `commit_id` 는 인터페이스의 개념이다. `.pending-<token>/` 의 이름과 `commit.json` 의 모양은 그대로이고, `lines` 에 `commit_id` 가 들어 있으므로 2.5 의 내용 대조가 식별자까지 대조한다 — 같은 내용의 다른 commit 의 꼬리를 자기 것으로 오인할 여지가 줄어든다. 이벤트 줄의 필드 순서는 `seq`, `task_id`, `commit_id`, 나머지.
+- 결과를 알 수 없는 commit 의 확인 절차는 `docs/design/commands.md` 3절.
+
+### 3.6 Artifact 의 내용이 있는 곳 (5절 F9)
+
+artifact 스키마에 두 필드와 조건을 더한다. 스키마의 description 이 기준이고 여기는 설계의 요지다.
+
+- `stored_in`: `store` | `repo`. `store` 면 내용은 Store 의 blob 이고 `content_key` 가 필수, `code`·`paths` 는 없어야 한다. `type` 은 `document` 나 `data`. `repo` 면 내용은 대상 repo 의 commit(`code`) 안의 파일이고 `code` 와 `paths`(repo 상대 경로, 1개 이상)가 필수, `content_key` 는 없어야 한다.
+- `type: code_change` 는 언제나 repo 다 — `code` 필수, `content_key` 금지, `stored_in` 이 있으면 `repo`.
+- `content_key` 에 blob 문법의 pattern 을 건다.
+- **옛 기록**: `stored_in` 이 없으면 이 필드가 생기기 전의 기록이다. 그때는 `content_key` 와 `code` 중 **정확히 하나**가 있어야 하고(있는 쪽이 위치다) `paths` 는 없어야 한다. T-0001 의 `store-design`(document 인데 `code` 만 있다)과 나머지 기존 meta 34개가 고치지 않은 채 통과한다(작업 노트의 실험). 새 meta 에는 `stored_in` 을 항상 적는다.
+- 지금보다 느슨해지지 않는다: 지금 통과하는 모순(문서에 `content_key` 와 `code` 가 둘 다 있거나 둘 다 없는 것, `code_change` 에 `content_key`)이 새 스키마에서는 거부된다. 강제하지 못하는 것은 "새 meta 가 `stored_in` 을 빠뜨리는 것" 하나이고, 빠뜨려도 위의 옛 규칙 때문에 위치가 모호해지지는 않는다(repo 인 경우 `paths` 가 없을 뿐이다).
+
+### 3.7 인터페이스에 더하는 것
+
+`src/store/types.ts` 와 `src/store/errors.ts` 에 더하는 선언이다. 적지 않은 기존 선언은 그대로다.
+
+```ts
+import type { ArtifactVersion, Decision, Event, Feedback, GateResult, Run, Step, Task } from '../types/generated/index.js';
+
+export interface EntityMap {
+  task: Task;
+  step: Step;
+  decision: Decision;
+  feedback: Feedback;
+  gate_result: GateResult;
+  run: Run;
+  artifact: ArtifactVersion;
+}
+
+export interface EntityKeyMap {
+  task: { taskId: string };
+  step: { taskId: string; stepId: string };
+  decision: { taskId: string; id: string };
+  feedback: { taskId: string; id: string };              // 수준은 값의 step_id — Store 가 찾는다
+  gate_result: { taskId: string; stepId: string; id: string };
+  run: { taskId: string; id: string };                   // 수준은 값의 step_id — Store 가 찾는다
+  artifact: { ref: string };                             // artifact://<task>/<step>/<name>@v<N>
+}
+
+export interface EntityScopeMap {
+  task: { status?: Task['status'] };
+  step: { taskId: string; status?: Step['status'] };
+  decision: { taskId: string };
+  /** stepId: 생략 = 두 수준 모두, null = Task 수준만, 문자열 = 그 Step 만. */
+  feedback: { taskId: string; stepId?: string | null; kind?: Feedback['kind'] };
+  gate_result: { taskId: string; stepId?: string };
+  run: { taskId: string; stepId?: string | null; role?: Run['role'] };
+  artifact: { taskId: string; stepId?: string; name?: string };
+}
+
+/** seq, task_id, commit_id 는 Store 가 부여한다. */
+export type NewEvent = Omit<Event, 'seq' | 'task_id' | 'commit_id'>;
+
+/** 'blob:' 으로 시작하는 blob 의 참조. 엔티티의 content_key, log_key 등에 그대로 담는다. */
+export type BlobRef = `blob:${string}`;
+
+/** blob 을 소유한 기록. key 의 모양이 여기서 정해진다(3.3). */
+export type BlobOwner =
+  | { taskId: string; stepId?: string; runId: string }
+  | { taskId: string; stepId: string; gateId: string };
+
+export interface BlobWrite {
+  owner: BlobOwner;
+  /** <label> 또는 <label>.<ext>. 예: 'work-notes', 'output.json', 'deterministic', 'transcript.jsonl'. */
+  name: string;
+  content: string | Uint8Array;
+}
+
+export interface Change {
+  expectedLastSeq?: number;
+  writes?: EntityWrite[];
+  /** 이 commit 에 함께 기록할 blob. 이미 있는 key 면 AlreadyExistsError. */
+  blobs?: BlobWrite[];
+  events: [NewEvent, ...NewEvent[]];
+}
+
+/** ID 를 Store 가 발급하는 kind. Artifact 버전은 nextArtifactVersion. */
+export type IssuedIdKind = 'step' | 'decision' | 'feedback' | 'gate_result' | 'run';
+
+export interface CommitContext {
+  lastSeq: number;
+  /** 그 kind 의, Task 안에서 가장 큰 번호의 다음 ID ('R-008' 등). 같은 컨텍스트에서 부를 때마다 다음 번호. */
+  nextId(kind: IssuedIdKind): string;
+  /** 그 Step 의 그 이름의 다음 Artifact 버전(1부터). 같은 컨텍스트에서 부를 때마다 다음 번호. */
+  nextArtifactVersion(stepId: string, name: string): number;
+}
+
+export interface CommitResult {
+  events: Event[];
+  /** 이 commit 의 식별자. events 의 commit_id 와 같다. */
+  commitId: string;
+}
+
+export interface Store {
+  // createTask, commit, get, list, readEvents — 시그니처 그대로
+  /**
+   * blob 하나를 읽는다. 없거나 key 가 문법에 맞지 않으면 undefined. commit 이 끝난 상태만 보인다.
+   * @throws StoreBusyError, StoreUnavailableError
+   */
+  getBlob(ref: string): Promise<Uint8Array | undefined>;
+}
+
+// src/store/blob-ref.ts — 인터페이스 쪽의 순수 함수. 파일 위치를 모른다.
+export declare function blobRef(owner: BlobOwner, name: string): BlobRef;
+
+// src/store/errors.ts
+/** 불변인 기록이 이미 있거나 Task 안의 ID 가 이미 쓰였다. 아무것도 기록되지 않았다. */
+export declare class AlreadyExistsError extends StoreError {
+  constructor(subject: string);
+  readonly subject: string;
+}
+export declare class CommitOutcomeUnknownError extends StoreError {
+  constructor(taskId: string, firstSeq: number, commitId: string, options?: ErrorOptions);
+  readonly taskId: string;
+  readonly firstSeq: number;
+  /** 확인할 때 찾을 식별자 (commands.md 3절). */
+  readonly commitId: string;
+}
+```
+
+- `CommitOutcomeUnknownError` 의 생성자에 인자가 하나 늘지만 그것을 만드는 것은 Store 구현체뿐이고, 호출자는 잡아서 필드를 읽기만 한다.
+- `get` 의 `artifact` key 에는 taskId 가 없다 — 구현체가 `ref` 에서 읽는다.
+- `EntityWrite` 는 지금의 정의(`EntityMap` 에서 만들어지는 합)가 그대로 새 kind 를 받는다.
+
+### 3.8 DB 구현체로의 대응 (더해지는 것)
+
+| 인터페이스 | DB |
+|---|---|
+| kind 별 key | 테이블마다 기본 키 `(task_id, id)` (step 은 `(task_id, step_id)`, artifact 는 `(task_id, step_id, name, version)`). Run·Feedback 의 `step_id` 는 보통 열이다 |
+| 불변 kind | insert 만 한다. 기본 키 위반을 `AlreadyExistsError` 로 옮긴다 |
+| Task 안의 ID 유일성 | 기본 키가 `(task_id, id)` 이므로 수준과 무관하게 막힌다 |
+| `nextId` | 행 lock 을 쥔 트랜잭션 안에서 `max(번호) + 1`. 동기 함수이므로 트랜잭션 시작 때 최댓값을 한꺼번에 읽어 둔다 |
+| blob | object storage 나 blob 테이블. 트랜잭션 안에서 테이블에 쓰거나, object storage 라면 commit 전에 임시 이름으로 올리고 commit 뒤에 확정하는 두 단계가 된다 — 파일 구현체의 tmp → rename 과 같은 구조다 |
+| `commit_id` | `events` 의 열. 확인은 `WHERE task_id = ? AND commit_id = ?` |
+
+### 3.9 나중에 더할 길 (G-001 의 둘째·셋째 우려)
+
+구현하지 않는다(T-0005 의 non_goals). 이 설계가 그 길을 막지 않는다는 것만 적는다.
+
+- **Task 를 가로지르는 조회**: 지금 새 kind 의 scope 는 모두 `taskId` 가 필수다. 나중에 `EntityScopeMap` 의 `taskId` 를 선택으로 바꾸면(타입을 넓히는 것) 기존 호출은 그대로 컴파일되고 같은 뜻을 가진다. 파일 구현체는 `list('task')` 처럼 Task 디렉터리마다 같은 절차를 되풀이하면 되고, DB 는 `WHERE task_id = ?` 를 빼면 된다. Run·Feedback 의 key 에 stepId 를 넣지 않은 것도 이 길과 맞는다.
+- **lock 안의 엔티티 읽기**: `CommitContext` 에 읽기 멤버(예: `get(kind, key)`)를 더하고 `ChangeInput` 의 함수가 `Promise<Change>` 도 돌려줄 수 있게 넓히면 된다. 둘 다 추가·확대이고 지금의 동기 함수를 넘기는 호출자는 그대로다. 이번에 더하는 `nextId` 가 동기인 것은 이 길과 부딪치지 않는다 — 비동기 함수 안에서도 동기 함수는 부를 수 있다.
+
+### 3.10 여전히 범위 밖
+
 - **`project` 등록부, 전역 설정**: Task 에 속하지 않으므로 별도의 작은 인터페이스로 둔다.
 - **data repo 자동 commit**(ADR-0007): Store 의 책임이 아니라 commit 성공 후 호출되는 별도 구성 요소다. 파일 구현체 생성자에 `onCommitted(taskId, events)` 훅을 두면 된다.
+- **Ledger**(`ledger.md`)를 Store 로 옮기는 것.
+- 0단계의 운영 스크립트와 기록 방식을 Store 위로 옮기는 것.
 
 ## 4. DB 구현체로의 대응
 
