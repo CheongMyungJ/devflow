@@ -108,7 +108,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 
 | 접점 | 방식 |
 |---|---|
-| Task 발행 | `task new` — Intake 와 실시간 대화. 발행 전 확인이 첫 승인 지점 |
+| Task 발행 | `task new` — Intake 와 실시간 대화. 두 단계로 확인한다: 의도 초안 확인(7칸, AC 없이 — 첫 승인 지점) → 정의 확인(AC 와 범위) 뒤 발행 (ADR-0014) |
 | 진행 | `task run` — 사람 입력이 필요한 지점까지 `advance` |
 | 검토 | `task review` — 산출물 + Gate 결과 확인 후 승인 / 수정 요청 / 질문 / 요구사항 추가 / 직접 수정 |
 | AI 의 질문 | `ask_human` 시 멈춤 → `task answer` |
