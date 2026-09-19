@@ -32,15 +32,26 @@
 | 구성 요소 | 책임 | MVP 구현 | 확장 시 |
 |---|---|---|---|
 | commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로. 규약 `docs/design/commands.md` | in-process 함수 | HTTP API |
-| State Store | Task/Step/Artifact/Feedback/GateResult/Decision/Event 저장. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
+| State Store | Task/Step/Decision/Feedback/GateResult/Run/Artifact 와 이벤트, blob 저장. Task 안의 ID 발급, 불변 기록의 덮어쓰기 방지, commit 식별자. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` (아래 2.1) | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
 | Orchestrator | 멱등 `advance(task_id)` | 사람이 `task run` 으로 호출 | 이벤트가 호출 |
 | Role Runner | `submit / result / stream / sendMessage / cancel` + 백엔드 어댑터 | 로컬 subprocess (`claude-code`, `codex`, 테스트용 `fake`) | job queue + 컨테이너 |
 | Workspace | Task 별 branch/worktree | 로컬 git | 서버 clone, remote 경유 |
 
+### 2.1 State Store 와 스키마 로더
+
+- **다루는 것**: kind 일곱 — `task`, `step`, `decision`, `feedback`, `gate_result`, `run`, `artifact`(Artifact 버전의 meta) — 을 `get`/`list` 와 `commit` 의 쓰기로, Task 의 이벤트 로그를 `readEvents` 와 `commit` 으로, **blob**(문서 본문, 작업 노트, 역할 출력 파일, 검증 로그 같은 내용물. Run 이나 GateResult 가 소유한다)을 `commit` 의 `Change.blobs` 와 `getBlob` 으로 다룬다. 한 commit 의 엔티티·blob·이벤트는 함께 기록되거나 아무것도 기록되지 않는다. key·scope·파일 위치는 `docs/design/store.md` 3절.
+- **ID 발급**: Task ID 는 `createTask`, Task 안의 ID(Step, Decision, Feedback, GateResult, Run, Artifact 버전)는 `commit` 의 함수 형태가 받는 `CommitContext` 의 `nextId`·`nextArtifactVersion` 이 lock 을 쥔 뒤의 상태로 발급한다(ADR-0011, ADR-0015).
+- **불변 기록**: Decision, GateResult, Artifact 버전, blob 은 한 번 쓰면 다시 쓸 수 없다(`AlreadyExistsError`). 승인은 Artifact 를 고치지 않고 승인 Feedback 과 `artifact.approved` 이벤트로만 나타낸다(ADR-0015).
+- **commit 식별자**: Store 가 `commit`·`createTask` 호출마다 만들어 그 commit 의 모든 이벤트의 `commit_id` 에 넣는다. 결과를 알 수 없는 commit 은 commands 가 이것으로 확인한다(`docs/design/commands.md` 3절).
+- **코드의 자리**: 인터페이스 `src/store/types.ts`, 오류 `src/store/errors.ts`, blob key 의 문법과 key 를 만드는 순수 함수 `blobRef` 는 `src/store/blob-ref.ts`(파일 위치를 모른다 — 호출자가 commit 전에 key 를 알아 엔티티에 담는다). 파일 구현체는 `src/store/file/` 이고 파일 이름 규칙(어느 기록·blob 이 어느 파일인가)은 `src/store/file/layout.ts` 한 곳에 있다. 파일 위치 지식은 이 디렉터리 밖으로 나가지 않는다(AGENTS.md 2번).
+- **스키마 로더**: `src/schema/registry.mjs`(+ 타입 선언 `registry.d.mts`) 하나가 `schemas/` 의 스키마를 모두 한 ajv 에 등록하고 이름으로 검증 함수를 준다. 스키마가 파일을 가로질러 `$ref` 하므로 모두 등록해야 한다. Store(`src/schema/validator.ts` 를 거쳐), `scripts/validate-data.mjs`, `scripts/record-gate.mjs`, 테스트가 모두 이것을 쓴다(ADR-0016). JavaScript 인 이유는 운영 스크립트가 빌드 없이 Node 로 돌기 때문이다.
+- **빌드 출력으로 복사하는 조건**: tsc 는 `.mjs` 를 출력 디렉터리로 옮기지 않는다. 그래서 `src/` 를 tsc 로 빌드해 실행하는 곳은 빌드 뒤에 `src/**/*.mjs` 를 같은 상대 위치로 복사해야 하고, 빌드 출력은 repo 안(지금은 `node_modules/.cache/` 아래)에 두어야 한다 — `registry.mjs` 가 자기 위치에서 위로 올라가며 `schemas/` 를 찾고, 빌드물이 repo 의 의존성을 찾아야 하기 때문이다. 지금 그렇게 빌드하는 곳은 `tests/global-setup.ts`(다중 프로세스 테스트의 자식 프로세스용)와 `scripts/check-store-read.mjs` 둘이고 같은 빌드·복사 코드를 따로 가진다. 배포용 빌드나 다른 출력 디렉터리를 만들 때 같은 처리가 필요하다.
+- **검증용 스크립트**: `scripts/validate-data.mjs` 는 데이터 디렉터리의 기록을 스키마로 검사한다(Store 를 쓰지 않고 파일을 직접 읽으며 Store 와 같은 파일 이름 규칙을 따로 적는다). `scripts/check-store-read.mjs`(`npm run check-store-read -- <data-dir>`)는 데이터 디렉터리를 Store 의 파일 구현체로 열어 모든 kind 와 blob 이 읽히는지 확인한다 — 파일 구현체를 빌드 출력에서 직접 import 한다. 둘 다 시스템을 검증하는 개발용 스크립트이지 사람이 시스템에 접근하는 CLI/UI 가 아니므로 AGENTS.md 1번(CLI 는 commands/queries 만 호출)의 대상이 아니다. 데이터를 쓰지 않는다.
+
 ## 3. 엔티티
 
 ```
-Task 1 ─── N Step 1 ─── N Attempt ─── Artifact(version)
+Task 1 ─── N Step 1 ─── N Run ─── Artifact(version)
                 │                         ▲
                 │                     Feedback (특정 version 에 부착)
                 ├── GateResult (특정 Artifact version 에 대한 판정)
@@ -51,7 +62,9 @@ Task 1 ─── N Step 1 ─── N Attempt ─── Artifact(version)
 
 - **Task** — 유형, 대상 repo, 목표(바라는 결과), 배경, 제약, 수용 기준(AC) + 의도의 칸: 문제, 식별 가능한 성공 기준, 영향받는 사람과 시스템, 범위 밖, 열린 질문(질문마다 누가 답하는가). AC 는 성공 기준을 검증 가능한 문장으로 옮긴 것이고 각 AC 가 어느 성공 기준을 옮겼는지 가리킨다. 사람이 답해야 할 열린 질문이 남은 Task 는 스키마가 거부해 발행되지 않는다 (ADR-0013)
 - **Step** — goal / scope / inputs / outputs / done_when / verify / approval
-- **Artifact** — 문서는 `artifact://T/step/name@vN`, 코드는 `repo+branch+SHA`. 승인된 버전이 공식 기록
+- **Artifact** — 문서는 `artifact://T/step/name@vN`, 코드는 `repo+branch+SHA`. 버전마다 한 번 쓰면 바뀌지 않는 meta 가 있고 내용이 어디 있는지(Store 의 blob 인지 대상 repo 인지)를 말한다. 승인된 버전이 공식 기록이고, 승인은 그 버전을 가리키는 승인 Feedback 과 이벤트로 나타낸다
+- **Run** — 역할 세션 한 번의 실행 기록(backend, model, 수행 주체, packet_gaps). Step 에 속하거나(Worker, Reviewer) Task 에 속한다(Intake, Planner). 출력 파일·작업 노트·transcript 는 그 Run 이 소유한 blob 이다
+- **ID** — Task 는 `T-NNNN`, Task 안에서 Step `step-NNN`, Decision `D-NNN`, Feedback `F-NNN`, GateResult `G-NNN`, Run `R-NNN`, Artifact 버전 `v<N>`. 모두 Store 가 발급하고 Task 안에서 kind 마다 유일하다
 - **Feedback** — 수정 요청 / 질문 / 승인 / 요구사항 추가. 검토 시 또는 실행 중(live) 발생
 - **GateResult** — pass/fail, 항목별 결과, 근거, Reviewer 의 지적(severity · class A/B/C · text). Reviewer 가 아닌 출처(시스템, Worker 의 실측)의 정보는 `annotations` 에 따로 담는다
 - **Decision** — `next_step | rework | ask_human | done | abort` + 근거
@@ -143,7 +156,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - 프로젝트 이름 → remote URL·기본 branch 는 `devflow-data/projects.yaml` 에, 로컬 clone 위치는 머신별 설정에 둔다.
 - Step 의 `inputs` 는 `code://<project>@<sha>` 로 대상 repo 가 아닌 등록된 프로젝트도 가리킬 수 있다. 그 참조는 읽기 전용이고, 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이다. 참조 문법은 `schemas/step.schema.json` 이 강제한다.
 - 대상 repo 의 `.devflow.yaml`(`schemas/project-config.schema.json`)이 검증 명령을 정의한다. `exclusive: true` 인 프로젝트는 Gate 를 직렬로 실행한다.
-- Store 파일 구현체는 같은 Task 에 대한 commit 을 Task 별 lock 으로 직렬화한다. Task ID 는 lock 없이 `mkdir` 의 원자성으로 발급한다(ADR-0011). `devflow-data` 의 git 자동 commit 은 직렬화해야 한다(미구현).
+- Store 파일 구현체는 같은 Task 에 대한 commit 을 Task 별 lock 으로 직렬화한다. Task ID 는 lock 없이 `mkdir` 의 원자성으로 발급하고(ADR-0011), Task 안의 ID 는 그 Task 의 lock 안에서 발급하므로 동시 commit 에서도 겹치지 않는다(ADR-0015). `devflow-data` 의 git 자동 commit 은 직렬화해야 한다(미구현).
 - 같은 repo 의 동시 수정은 막지 않는다. `advance` 가 base branch 이동을 감지해 Planner 에 알리고, Planner 가 "base 갱신 후 재검증" Step 을 만든다.
 - `task status` 는 Task 전체에 걸쳐 사람 입력을 기다리는 항목을 보여 준다. 동시 실행 수 상한은 전역 설정이다.
 

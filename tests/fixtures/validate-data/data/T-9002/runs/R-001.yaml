@@ -1,0 +1,12 @@
+id: R-001
+task_id: T-9002
+role: planner
+purpose: plan
+access: read
+backend: claude-code
+model: example-model
+session_path: new
+performer: isolated_session
+status: completed
+submitted_at: "2026-01-01T00:01:00Z"
+ended_at: "2026-01-01T00:04:00Z"

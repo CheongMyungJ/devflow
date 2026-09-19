@@ -3,18 +3,14 @@
 // 거부 테스트는 "유효한 base 에서 한 가지만 바꾼 것" 으로 하고, 오류가 기대한 위치에서 났는지도 본다.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
+import type { ValidateFunction } from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
+import { loadSchemas } from '../src/schema/registry.mjs';
 
-const schemaDir = join(import.meta.dirname, '..', 'schemas');
-const load = (name: string) => JSON.parse(readFileSync(join(schemaDir, `${name}.schema.json`), 'utf8'));
-
-function compile(name: string): ValidateFunction {
-  const a = new Ajv2020({ allErrors: true, strict: false });
-  addFormats.default(a);
-  return a.compile(load(name));
-}
+const schemas = loadSchemas();
+/** 스키마 파일의 JSON 그대로(여러 스키마에 되풀이된 정의를 비교할 때). */
+const load = (name: string) => JSON.parse(readFileSync(join(schemas.schemaDir, `${name}.schema.json`), 'utf8'));
+const compile = (name: string): ValidateFunction => schemas.validator(name);
 
 /** 거부되었고, 오류 가운데 instancePath 가 prefix 로 시작하는 것이 있으며, 그 밖의 위치에서는 오류가 없다. */
 function expectRejectedAt(validate: ValidateFunction, value: unknown, prefix: string) {

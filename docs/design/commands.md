@@ -30,6 +30,7 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드)에�
 | `InvalidChangeError` | command 의 버그다 | 그대로 올린다 | 내부 오류 |
 | `TaskNotFoundError` | 그런 Task 가 없다 | 그대로 올린다 | Task ID 를 확인하라 |
 | `ConflictError` | 상태를 읽은 뒤 누군가 먼저 바꿨다 | 4절의 패턴 | (대개 사용자에게 보이지 않는다) |
+| `AlreadyExistsError` | 불변인 기록(Decision, GateResult, Artifact 버전, blob)이 이미 있거나, Task 안의 ID 가 다른 자리에서 이미 쓰였거나, 대소문자만 다른 key·이름의 기록이 있다(store.md 3.2). 기록된 것이 없다 | 그대로 올린다. 다시 시도해도 같은 오류다. 결과를 모른 채 다시 보낸 쓰기라면 "이미 있다" 가 곧 원하던 상태일 수 있으므로 필요하면 `get` 으로 그 기록을 읽어 확인할 수 있다(결과를 알 수 없는 commit 의 확인 자체는 3절의 식별자로 한다) | `subject`(어떤 기록인지). 같은 ID·버전으로 다시 쓸 수 없다 — 새 ID·버전으로 써야 한다 |
 | `StoreBusyError` | 다른 프로세스가 그 Task 를 쥐고 있다. 기록된 것이 없다 | 그대로 올린다. **command 가 다시 시도하지 않는다** — Store 가 이미 제한 시간만큼 기다렸다 | `detail` 을 **그대로** 보여 준다. 누가 쥐고 있는지, 무엇을 확인하고 무엇을 지우면 풀리는지가 들어 있다 |
 | `StoreUnavailableError` | 저장소에 접근하지 못했다. 기록된 것이 없다 | 그대로 올린다 | `cause` 의 내용. 다시 시도해도 안전하다 |
 | `CommitOutcomeUnknownError` | 기록되었는지 알 수 없다 | 3절의 확인 절차 | 확인까지 실패했을 때만: "기록되었는지 확인하지 못했다. `task status` 로 확인하라" |
@@ -42,16 +43,19 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드)에�
 
 `CommitOutcomeUnknownError` 는 "기록 도중 실패했고 성립 여부를 그 자리에서 판정하지 못했다" 는 뜻이다(store.md 2.4). Store 의 상태는 다음 접근에서 일관되게 복구되므로, 호출자는 **다시 읽어서** 판정한다. `src/commands/outcome.ts` 의 `confirmOutcome(store, error, sentEvents)` 가 이 절차다.
 
-1. `store.readEvents(error.taskId, { afterSeq: error.firstSeq - 1 })` 로 그 자리부터의 이벤트를 읽는다.
-2. 앞에서부터 보낸 개수만큼의 이벤트가 seq, task_id, **내용**까지 보낸 것과 같으면 성립한 것이다 → command 는 성공을 돌려준다.
-3. Task 가 없거나 그 자리의 내용이 다르면 성립하지 않은 것이다 → `StoreUnavailableError`(원래 오류가 `cause`). "기록된 것이 없다" 는 계약으로 돌아온 것이므로 다시 시도해도 안전하다.
-4. 1의 읽기조차 실패하면 여전히 알 수 없는 것이다 → 원래의 `CommitOutcomeUnknownError` 를 올린다.
+판정의 기준은 **commit 식별자**다(store.md 3.5, T-0005). Store 는 `commit()`·`createTask()` 의 호출마다 식별자 하나를 만들어 그 commit 의 모든 이벤트의 `commit_id` 에 넣고, 결과를 알 수 없게 되면 그 값을 오류의 `commitId` 에 담는다. 식별자는 호출마다 새로 만들어지므로 다른 commit 의 이벤트가 같은 값을 가질 수 없다.
 
-**다른 호출자의 이벤트를 자기 것으로 오인하지 않는가.** 이벤트에 commit 식별자가 없어(store.md 5절 F12) 내용으로만 비교한다.
-- `createTask`: 이벤트에 더해 **저장된 Task 가 보낸 Task 와 같은지**도 비교한다. 실패한 발행의 ID 는 다음 호출자에게 다시 발급될 수 있으므로 "그 ID 의 seq 1 은 내 것" 이라고 가정할 수 없다. 파일 구현체는 결과를 알 수 없는 발행의 ID 를 재발급하지 않지만(디렉터리를 남긴다) 이것은 Store 의 계약이 아니라 그 구현체의 성질이고, 다른 구현체에서는 같은 행위자·같은 시각의 `task.created` 가 그 자리에 올 수 있다. Task 까지 같다면 상태는 이 호출이 원한 그대로다.
-- 기존 Task 에 대한 command: 두 호출자가 **같은 자리에 같은 내용**을 보낸 경우에만 구별되지 않는다. 그 경우 Task 의 상태는 이 호출자가 원한 그대로이므로 성공으로 보아도 결과가 같다. 내용이 조금이라도 다르면(actor, at, data) 성립하지 않은 것으로 판정한다. 이 논리는 "같은 내용의 이벤트는 같은 효과를 낸다" 는 전제에 기댄다. **엔티티 쓰기를 동반하는 command 에서는 이 전제가 성립하지 않는다**: 이벤트는 같고 엔티티 쓰기가 다른 두 commit 이 있을 수 있다. `expectedLastSeq` 도 이를 막지 못한다 — 결과를 알 수 없게 된 쪽이 되돌려졌다면 마지막 seq 가 그대로여서 다른 쪽도 검사를 통과한다. 그래서 엔티티 쓰기를 동반하는 command 는 확인할 때 **자신이 쓴 엔티티도 저장된 것과 비교한다**(`createTask` 가 그렇게 한다). 근본 해결은 commit 식별자다(F12).
+1. `store.readEvents(error.taskId, { afterSeq: error.firstSeq - 1 })` 로 그 자리부터의 이벤트를 읽는다. `TaskNotFoundError` 면 읽은 이벤트가 없는 것으로 본다.
+2. 읽은 이벤트 가운데 `commit_id` 가 `error.commitId` 와 같은 것을 고른다.
+3. **하나도 없으면 성립하지 않은 것이다** → `StoreUnavailableError`(원래 오류가 `cause`). "기록된 것이 없다" 는 계약으로 돌아온 것이므로 다시 시도해도 안전하다. 그 자리에 다른 이벤트가 있어도 — 내용이 보낸 것과 글자 하나 다르지 않아도 — 식별자가 다르면 남의 commit 이다.
+4. **보낸 개수만큼 있고** 그것들이 `firstSeq` 부터 빈틈없이 이어지며 식별자를 뺀 내용이 보낸 것과 같으면 성립한 것이다 → command 는 성공을 돌려준다.
+5. 식별자가 같은 이벤트가 있는데 4를 만족하지 않으면(개수가 모자라거나 남는다, 자리가 어긋난다, 내용이 다르다) Store 의 계약이 깨진 것이다(한 commit 의 이벤트는 전부 보이거나 전혀 보이지 않고 연속된 seq 를 받는다 — store.md 1절) → `SchemaViolationError(read)`. 자동으로 고치지 않는다(2절).
+6. 1의 읽기조차 실패하면 여전히 알 수 없는 것이다 → 원래의 `CommitOutcomeUnknownError` 를 올린다.
 
-commit 식별자가 생기면(F12) 2의 비교를 식별자 비교로 바꾼다.
+- **식별자가 없는 옛 이벤트**(T-0005 이전의 기록, 0단계의 운영 스크립트가 쓴 이벤트)는 어떤 식별자와도 같지 않으므로 2에서 골라지지 않는다. 옛 이벤트를 가르는 장치는 따로 없다.
+- **엔티티 쓰기를 동반하는 command**: 이벤트와 엔티티 쓰기(와 blob)는 한 commit 으로 원자적으로 기록되므로(store.md 1절, 3.3), 자기 식별자의 이벤트가 있다는 것은 그 commit 의 쓰기도 들어갔다는 뜻이다. 저장된 엔티티를 보낸 것과 비교하지 않는다 — 비교하면 그 뒤에 다른 commit 이 정당하게 바꾼 엔티티를 "성립하지 않았다" 로 잘못 판정한다. T-0001 의 내용 비교가 기대던 전제("같은 내용의 이벤트는 같은 효과를 낸다")도 더는 필요 없다.
+- **`createTask`**: 같은 절차다(`firstSeq` 는 1). 실패한 발행의 ID 가 다른 호출자에게 다시 발급되어 그 ID 의 seq 1 에 같은 행위자·같은 시각의 `task.created` 가 오더라도 식별자가 다르므로 성립하지 않은 것으로 판정된다. 그래서 저장된 Task 를 보낸 Task 와 비교하던 T-0001 의 확인은 없앤다. 성립했으면 보낸 Task 를 돌려준다.
+- `expectedLastSeq` 와의 관계는 그대로다. 식별자는 "내 commit 이 들어갔는가" 를 가리고, `expectedLastSeq` 는 "내가 본 상태 위에 쓰는가" 를 가린다.
 
 ## 4. `expectedLastSeq` 를 쓰는 command 의 패턴
 
@@ -70,9 +74,9 @@ commit 식별자가 생기면(F12) 2의 비교를 식별자 비교로 바꾼다.
 
 - 멱등한 command(`advance`)는 "이미 처리됨" 을 성공으로 돌려준다. 같은 호출이 두 번 와도 이벤트는 한 번만 기록된다.
 - 사람의 승인처럼 **특정 버전을 보고 내린 판단**은 다시 읽었을 때 그 버전이 여전히 최신인지 확인한다. 아니면 오류로 끝낸다(ADR-0004).
-- 읽기와 판단을 Store 의 lock 안에서 하지 않는다. `ChangeInput` 의 함수 형태는 `lastSeq` 만 받으며, 그 안에서 Store 를 다시 부르면 안 된다(동기·무부작용).
+- 읽기와 판단을 Store 의 lock 안에서 하지 않는다. `ChangeInput` 의 함수 형태가 받는 `CommitContext` 에는 `lastSeq` 와 Task 안의 ID 발급(`nextId(kind)`, `nextArtifactVersion(stepId, name)` — store.md 3.4)만 있고 엔티티를 읽는 멤버는 없다(store.md 3.9). 함수 안에서 Store 를 다시 부르면 안 된다(동기·무부작용). 새 기록의 ID 는 이 함수 안에서 `nextId` 로 받아 쓴다 — lock 을 쥔 뒤의 상태로 세므로 동시 commit 과 겹치지 않는다.
 
-이번 Task 의 `createTask` 는 읽고 판단하는 단계가 없어 이 패턴을 쓰지 않는다.
+`createTask` 는 읽고 판단하는 단계가 없어 이 패턴을 쓰지 않는다.
 
 ## 5. Store 인스턴스의 수명
 

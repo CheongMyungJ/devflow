@@ -1,0 +1,23 @@
+id: step-001
+task_id: T-9002
+skill: null
+goal: |
+  예시 문서를 쓴다.
+scope:
+  include:
+    - docs/example.md
+inputs:
+  - task.brief
+outputs:
+  - name: plan
+    type: document
+  - name: change
+    type: code_change
+done_when:
+  - 예시 문서가 있다
+verify:
+  semantic:
+    - 문서가 목표를 말하는가
+approval: required
+status: running
+created_from: D-001

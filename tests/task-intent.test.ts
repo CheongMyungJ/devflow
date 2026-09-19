@@ -1,16 +1,11 @@
 // Task 양식의 의도의 칸(T-0004): problem, success_criteria, affected, non_goals, open_questions 와 AC 의 covers.
 // (1) 스키마의 유효·무효 예 (2) 생성 타입(npm run gen → src/types/generated/)이 그 값을 실제로 받는가.
 // 타입 수준의 단언은 `npm run typecheck`(tests/ 도 tsc 의 대상)에 걸린다 — vitest 는 타입을 검사하지 않는다.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
+import { loadSchemas } from '../src/schema/registry.mjs';
 import type { Task } from '../src/types/generated/index.js';
 
-const a = new Ajv2020({ allErrors: true, strict: false });
-addFormats.default(a);
-const validate = a.compile(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'schemas', 'task.schema.json'), 'utf8')));
+const validate = loadSchemas().validator('task');
 const errors = () => JSON.stringify(validate.errors);
 /** 거부된 이유가 의도한 자리인지 본다 — 다른 이유(빠진 필수 필드 등)로 거부된 것을 통과로 세지 않는다. */
 const rejectedOnlyAt = (value: unknown): string[] => {
@@ -142,7 +137,7 @@ describe('생성 타입: 의도의 칸', () => {
     const firstCriterion: string | undefined = full.success_criteria?.[0]?.id;
     const affected: string[] | undefined = full.affected;
     const owner: 'planner_or_worker' | 'investigation_step' | undefined = full.open_questions?.[0]?.answered_by;
-    const covers: string[] | undefined = full.acceptance_criteria[0].covers;
+    const covers: string[] | undefined = full.acceptance_criteria[0]?.covers;
     expect([problem, firstCriterion, affected, owner, covers]).toHaveLength(5);
 
     // 쓰는 쪽: 틀린 모양은 타입에서 막힌다

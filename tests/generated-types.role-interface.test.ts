@@ -1,19 +1,12 @@
 // 생성 타입(npm run gen → src/types/generated/)이 T-0003 에서 바뀐 스키마의 값을 실제로 받을 수 있는가.
 // 단언은 타입 수준이다 — 대입이 안 되면 `npm run typecheck`(tests/ 도 tsc 의 대상)가 실패한다.
 // vitest 는 타입을 검사하지 않으므로 실행 시의 검사는 같은 값이 스키마도 통과하는지만 본다.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
+import { loadSchemas } from '../src/schema/registry.mjs';
 import type { Decision, GateResult, ReviewerOutput, Run, Step, WorkerOutput } from '../src/types/generated/index.js';
 
-const schemaDir = join(import.meta.dirname, '..', 'schemas');
-function compile(name: string) {
-  const a = new Ajv2020({ allErrors: true, strict: false });
-  addFormats.default(a);
-  return a.compile(JSON.parse(readFileSync(join(schemaDir, `${name}.schema.json`), 'utf8')));
-}
+const schemas = loadSchemas();
+const compile = (name: string) => schemas.validator(name);
 
 const sha = '0123456789abcdef0123456789abcdef01234567';
 
@@ -38,9 +31,7 @@ describe('생성 타입: Step.inputs', () => {
 
   it('타입에 대입한 값이 스키마의 문법도 통과한다', () => {
     const validate = compile('step');
-    // verify 는 타입을 붙이지 않고 검증할 때 더한다: 생성 타입의 Step.verify 는 T-0003 이전부터 배열을 받지 못한다
-    // (verify 의 anyOf 가지가 타입 없는 속성이라 색인 서명 객체로 생성된다). inputs 와 별개의 문제이고 이 테스트의 대상이 아니다.
-    const step: Omit<Step, 'verify'> = {
+    const step: Step = {
       id: 'step-001',
       task_id: 'T-0009',
       goal: 'g',
@@ -48,10 +39,11 @@ describe('생성 타입: Step.inputs', () => {
       inputs: [...literals, ...fromStrings],
       outputs: [{ name: 'o', type: 'document' }],
       done_when: ['d'],
+      verify: { semantic: ['q'] },
       approval: 'required',
       status: 'defined',
     };
-    expect(validate({ ...step, verify: { semantic: ['q'] } }), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(step), JSON.stringify(validate.errors)).toBe(true);
     expect(plain).toHaveLength(6);
     expect(notString).toHaveLength(1);
   });

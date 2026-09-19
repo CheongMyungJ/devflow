@@ -1,0 +1,3 @@
+# Worker 의 출력 파일(blob). Run 기록이 아니므로 run 스키마로 읽지 않는다.
+summary: 예시 문서를 썼다.
+packet_gaps: []

@@ -1,0 +1,18 @@
+ref: artifact://T-9002/step-001/change@v1
+task_id: T-9002
+step_id: step-001
+name: change
+version: 1
+type: code_change
+author: worker
+run_id: R-002
+stored_in: repo
+code:
+  repo: example-project
+  branch: task/T-9002-example
+  base_sha: 0123456789abcdef0123456789abcdef01234567
+  head_sha: 89abcdef0123456789abcdef0123456789abcdef
+paths:
+  - docs/example.md
+work_notes_key: blob:T-9002/step-001/R-002.work-notes
+created_at: "2026-01-01T00:09:00Z"

@@ -13,7 +13,7 @@ describe('FileStore: 생성, 조회, 이벤트 (AC2)', () => {
 
     expect(made.task.id).toBe('T-0001');
     expect(made.task.target.task_branch).toBe('task/T-0001'); // build 가 발급된 ID 를 받아 쓴다
-    expect(made.events).toEqual([{ seq: 1, task_id: 'T-0001', ...createdEvent }]);
+    expect(made.events).toEqual([{ seq: 1, task_id: 'T-0001', commit_id: expect.stringMatching(/^[0-9a-f-]{36}$/), ...createdEvent }]);
     expect(Object.keys(snapshot(dataDir)).sort()).toEqual(['T-0001/events.jsonl', 'T-0001/task.yaml']);
 
     const log = readText(join(dataDir, 'T-0001', 'events.jsonl'));
