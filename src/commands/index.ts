@@ -6,3 +6,5 @@ export { confirmOutcome } from './outcome.js';
 export { recordedAt } from './time.js';
 export { isEventRef, isTaskId } from '../store/refs.js';
 export { nextStepStatus, STEP_TRANSITIONS, type StepStatus, type StepTransition, type TransitionCommand } from './transitions.js';
+export { recordGate, type RecordGateInput } from './gates.js';
+export { type ArtifactSource, completeRun, type CompleteRunInput, failRun, type FailRunInput, submitRun, type SubmitRunInput } from './runs.js';

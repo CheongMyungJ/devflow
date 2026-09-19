@@ -1,401 +1,192 @@
-// scripts/record-gate.mjs 를 자식 프로세스로 실제로 실행해 검사한다(T-0003 의 AC7).
-// 입력 예시는 tests/fixtures/record-gate/ 에 있다 — data/ 는 그대로 데이터 디렉터리의 모양이라,
-// 임시 디렉터리에 복사한 뒤 같은 명령을 손으로 돌려 재현할 수 있다.
-import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// scripts/record-gate.mjs (입구 — commands.recordGate)를 자식 프로세스로 실제로 실행한다 (T-0003 AC7 → T-0006 step-004 에서 새 입구로).
+// 옛 record-gate 의 검증 1~5 의 거부는 그대로 남고(한 가지만 바꾼 출력), 이제 Gate 와 Reviewer Run 이 한 commit 이다.
+// 데이터 디렉터리는 임시 디렉터리에 commands 로 준비한다(Task·Step·Worker 산출물·submitted 인 Reviewer Run). 입력 예시는 tests/fixtures/record-gate/.
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type CommandContext, systemClock } from '../src/commands/index.js';
+import { submitReviewer, workerRound } from './commands/round-helpers.js';
+import { allText, containsPath, entryRunner, validateData } from './entry-helpers.js';
+import { contentSnapshot, createSample, newStore, tempDataDir } from './store/helpers.js';
 import { REPO_ROOT } from './store/paths.js';
+import { event, step } from './store/records.js';
 
-const RECORD_GATE = join(REPO_ROOT, 'scripts', 'record-gate.mjs');
-const VALIDATE_DATA = join(REPO_ROOT, 'scripts', 'validate-data.mjs');
 const FIXTURES = join(REPO_ROOT, 'tests', 'fixtures', 'record-gate');
-
-const TASK = 'T-9001';
-const STEP = 'step-001';
-const GATE = 'G-001';
-const RUN = 'R-002';
-const REFS = 'artifact://T-9001/step-001/example-doc@v1,artifact://T-9001/step-001/work-notes@v1';
+const OUTPUT = readFileSync(join(FIXTURES, 'data', 'T-9001', 'steps', 'step-001', 'runs', 'R-002.output.json'), 'utf8');
+const entry = entryRunner('record-gate');
 
 type Json = Record<string, any>;
-
-let tmp: string;
 let dataDir: string;
-const taskDir = () => join(dataDir, TASK);
-const gateFile = () => join(taskDir(), 'steps', STEP, 'gates', `${GATE}.yaml`);
-const runFile = () => join(taskDir(), 'steps', STEP, 'runs', `${RUN}.yaml`);
-const outFile = () => join(taskDir(), 'steps', STEP, 'runs', `${RUN}.output.json`);
+let taskId: string;
+let refs: string;
 
-beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'devflow-record-gate-'));
-  dataDir = join(tmp, 'data');
-  cpSync(join(FIXTURES, 'data'), dataDir, { recursive: true });
+beforeEach(async () => {
+  dataDir = tempDataDir();
+  const store = newStore(dataDir);
+  taskId = (await createSample(store)).id;
+  await store.commit(taskId, { writes: [{ kind: 'step', value: step(taskId, 'step-001') }], events: [event('step.defined', { step_id: 'step-001' })] });
+  const sys: CommandContext = { store, clock: systemClock, actor: 'system', systemSha: 'a'.repeat(40) };
+  refs = (await workerRound(sys, taskId)).refs.join(',');
+  await submitReviewer(sys, taskId); // R-002
 });
-afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true });
-});
 
-function node(script: string, args: string[]) {
-  const r = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' });
-  return { status: r.status, stdout: r.stdout, stderr: r.stderr, all: `${r.stdout}\n${r.stderr}` };
-}
-const recordGate = (...extra: string[]) => node(RECORD_GATE, [taskDir(), STEP, GATE, RUN, REFS, ...extra]);
-const validateData = () => node(VALIDATE_DATA, [dataDir]);
-
-const readOutput = (): Json => JSON.parse(readFileSync(outFile(), 'utf8'));
-const writeOutput = (value: unknown) => writeFileSync(outFile(), JSON.stringify(value, null, 2));
-const editOutput = (edit: (out: Json) => void) => {
-  const out = readOutput();
+const taskDir = () => join(dataDir, taskId);
+const recordGate = (outputText = OUTPUT, ...extra: string[]) => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-002', refs, '--output', entry.file(outputText, 'R-002.output.json'), ...extra]);
+const readYaml = (rel: string): Json => parse(readFileSync(join(taskDir(), rel), 'utf8'));
+const readGate = () => readYaml('steps/step-001/gates/G-001.yaml');
+const readRun = () => readYaml('steps/step-001/runs/R-002.yaml');
+const edited = (edit: (out: Json) => void) => {
+  const out = JSON.parse(OUTPUT) as Json;
   edit(out);
-  writeOutput(out);
-};
-const readGate = (): Json => parse(readFileSync(gateFile(), 'utf8'));
-const readRun = (): Json => parse(readFileSync(runFile(), 'utf8'));
-const writeAnnotations = (value: unknown, name = 'annotations.json') => {
-  const file = join(tmp, name);
-  writeFileSync(file, JSON.stringify(value, null, 2));
-  return file;
+  return JSON.stringify(out, null, 2);
 };
 
-/** 거부: exit 1, Gate 파일 없음, Run 기록이 글자 그대로. 출력에 기대한 위치·이유가 있다. */
-function expectRejected(r: ReturnType<typeof node>, runBefore: string, expectedInOutput: (string | RegExp)[]) {
-  expect(r.status, r.all).toBe(1);
-  for (const e of expectedInOutput) expect(r.stderr).toEqual(expect.stringMatching(e instanceof RegExp ? e : new RegExp(escapeRegExp(e))));
-  expect(existsSync(gateFile())).toBe(false);
-  expect(existsSync(join(taskDir(), 'steps', STEP, 'gates'))).toBe(false);
-  expect(readFileSync(runFile(), 'utf8')).toBe(runBefore);
+/** 거부: exit 1, 데이터 디렉터리가 한 바이트도 바뀌지 않았다, 출력에 기대한 위치·이유가 있다. */
+function expectRejected(run: () => ReturnType<typeof recordGate>, expected: (string | RegExp)[], status = 1) {
+  const before = contentSnapshot(dataDir);
+  const r = run();
+  expect(r.status, r.all).toBe(status);
+  for (const e of expected) expect(r.stderr).toMatch(e);
+  expect(contentSnapshot(dataDir)).toEqual(before);
 }
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-describe('record-gate: 새 형식의 Reviewer 출력을 Gate 로 옮긴다', () => {
-  it('fixture 의 출력 예시는 그대로 받아들여지고, 기록된 데이터 디렉터리가 validate-data 를 0 failed 로 통과한다', () => {
-    const before = validateData();
-    expect(before.status, before.all).toBe(0);
-    expect(before.stdout).toContain('3 checked, 0 failed'); // task, step, Run
-
-    const out = readOutput();
+describe('record-gate: Reviewer 출력을 Gate 로 옮긴다 (한 commit)', () => {
+  it('fixture 의 출력 예시를 받아들인다 — Gate, Run(completed, packet_gaps), in_review, 이벤트의 commit_id, validate-data 0 failed, 입력 경로는 기록되지 않는다', () => {
     const r = recordGate();
     expect(r.status, r.all).toBe(0);
-
+    expect(r.stdout).toMatch(/recorded G-001 on T-0001\/step-001 — verdict pass, 3 checks, 2 comments; R-002 completed; seq \d+\.\.\d+, commit [0-9a-f-]{36}/);
+    const out = JSON.parse(OUTPUT) as Json;
     const gate = readGate();
-    expect(gate.id).toBe(GATE);
-    expect(gate.task_id).toBe(TASK);
-    expect(gate.step_id).toBe(STEP);
-    expect(gate.reviewer_run_id).toBe(RUN);
-    expect(gate.artifact_refs).toEqual(REFS.split(','));
-    expect(gate.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-    // Reviewer 의 것은 값 그대로 — 여러 줄 text, 따옴표·콜론·'#' 가 YAML 을 거쳐도 같다.
-    expect(gate.verdict).toBe(out.verdict);
-    expect(gate.checks).toEqual(out.checks);
-    expect(gate.done_when).toEqual(out.done_when);
-    expect(gate.comments).toEqual(out.comments);
-    expect(gate.comments[0]).toEqual({ severity: 'risk', class: 'B', text: expect.stringContaining('\n') });
-    expect(gate.checks.map((c: Json) => c.kind)).toEqual(expect.arrayContaining(['deterministic', 'semantic']));
-    // Gate 에 없는 것
+    expect(gate).toEqual({ id: 'G-001', task_id: taskId, step_id: 'step-001', artifact_refs: refs.split(','), verdict: out.verdict, checks: out.checks, done_when: out.done_when, comments: out.comments, reviewer_run_id: 'R-002', created_at: expect.stringMatching(/Z$/) });
     expect(gate).not.toHaveProperty('packet_gaps');
-    expect(gate).not.toHaveProperty('annotations');
-    expect(Object.keys(gate).sort()).toEqual(
-      ['artifact_refs', 'checks', 'comments', 'created_at', 'done_when', 'id', 'reviewer_run_id', 'step_id', 'task_id', 'verdict'].sort(),
-    );
-
-    const after = validateData();
-    expect(after.status, after.all).toBe(0);
-    expect(after.stdout).toContain('4 checked, 0 failed'); // + Gate
+    expect(readRun()).toMatchObject({ status: 'completed', packet_gaps: out.packet_gaps });
+    expect(readYaml('steps/step-001/step.yaml').status).toBe('in_review');
+    expect(readFileSync(join(taskDir(), 'steps', 'step-001', 'runs', 'R-002.output.json'), 'utf8')).toBe(OUTPUT);
+    const events = readFileSync(join(taskDir(), 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Json).slice(-3);
+    expect(events.map((e) => e.type)).toEqual(['run.completed', 'gate.completed', 'step.status_changed']);
+    expect(new Set(events.map((e) => e.commit_id)).size).toBe(1);
+    const v = validateData(dataDir);
+    expect(v.status, v.all).toBe(0);
+    expect(v.stdout).toMatch(/ 0 failed/);
+    expect(containsPath(allText(dataDir), entry.inputs)).toBe(false);
   });
 
-  it('packet_gaps 는 Run 기록으로 옮겨지고 Run 의 다른 필드는 같은 값·같은 타입이며 기존 내용은 글자 그대로 남는다', () => {
-    const textBefore = readFileSync(runFile(), 'utf8');
-    const runBefore = readRun();
-    expect(runBefore).not.toHaveProperty('packet_gaps');
-
-    expect(recordGate().status).toBe(0);
-
-    const textAfter = readFileSync(runFile(), 'utf8');
-    const runAfter = readRun();
-    expect(textAfter.startsWith(textBefore)).toBe(true);
-    expect(runAfter.packet_gaps).toEqual(readOutput().packet_gaps);
-    const { packet_gaps: _moved, ...rest } = runAfter;
-    expect(rest).toStrictEqual(runBefore);
-    // 0단계의 Run 기록에서 타입이 흔들릴 수 있는 값들
-    expect(runAfter.submitted_at).toBe('2026-01-01T00:10:00Z');
-    expect(runAfter.ended_at).toBe('2026-01-01T00:15:00Z');
-    expect(runAfter.output_attempts).toBe(1);
-    expect(runAfter.backend_version).toBe('2.1.276');
-    expect(validateData().status).toBe(0);
-  });
-
-  it('빈 comments 와 빈 packet_gaps 도 그대로 옮겨진다([] = 부족 없음)', () => {
-    editOutput((out) => {
-      out.comments = [];
-      out.packet_gaps = [];
-    });
-    const r = recordGate();
+  it('빈 comments 와 빈 packet_gaps 도 그대로 옮긴다([] = 부족 없음)', () => {
+    const r = recordGate(edited((o) => ((o.comments = []), (o.packet_gaps = []))));
     expect(r.status, r.all).toBe(0);
     expect(readGate().comments).toEqual([]);
-    expect(readRun()).toHaveProperty('packet_gaps', []);
-    const v = validateData();
-    expect(v.status, v.all).toBe(0);
-    expect(v.stdout).toContain('4 checked, 0 failed');
+    expect(readRun().packet_gaps).toEqual([]);
   });
 
-  it('class A 인 지적이 있고 verdict 가 fail 이면 받아들인다', () => {
-    editOutput((out) => {
-      out.verdict = 'fail';
-      out.comments[0].class = 'A';
-    });
-    const r = recordGate();
+  it('class A 가 있고 verdict 가 fail 이면 받아들이고 Step 은 revising', () => {
+    const r = recordGate(edited((o) => ((o.verdict = 'fail'), (o.comments[0].class = 'A'))));
     expect(r.status, r.all).toBe(0);
-    expect(readGate().verdict).toBe('fail');
-    expect(validateData().status).toBe(0);
+    expect(readYaml('steps/step-001/step.yaml').status).toBe('revising');
   });
 
-  it('끝에 줄바꿈이 없는 Run 기록에도 packet_gaps 가 덧붙는다', () => {
-    writeFileSync(runFile(), readFileSync(runFile(), 'utf8').trimEnd());
-    const runBefore = readRun();
-    expect(recordGate().status).toBe(0);
-    const { packet_gaps, ...rest } = readRun();
-    expect(packet_gaps).toEqual(readOutput().packet_gaps);
-    expect(rest).toStrictEqual(runBefore);
-    expect(validateData().status).toBe(0);
-  });
-
-  it('끝에 덧붙일 수 없는 모양(flow mapping)의 Run 기록은 문서를 고쳐 쓰되 다른 필드의 값은 그대로다', () => {
-    const runBefore = readRun();
-    writeFileSync(runFile(), `${JSON.stringify(runBefore)}\n`);
-    expect(readRun()).toStrictEqual(runBefore);
-    const r = recordGate();
+  it('--deterministic 의 내용은 Gate 와 같은 commit 에 G-001.deterministic.md 로, --output-attempts 는 Run 에', () => {
+    const r = recordGate(OUTPUT, '--deterministic', entry.file('# deterministic\ntypecheck pass\n', 'det.md'), '--output-attempts', '2');
     expect(r.status, r.all).toBe(0);
-    const { packet_gaps, ...rest } = readRun();
-    expect(packet_gaps).toEqual(readOutput().packet_gaps);
-    expect(rest).toStrictEqual(runBefore);
-    expect(validateData().status).toBe(0);
+    expect(readFileSync(join(taskDir(), 'steps', 'step-001', 'gates', 'G-001.deterministic.md'), 'utf8')).toBe('# deterministic\ntypecheck pass\n');
+    expect(readRun().output_attempts).toBe(2);
   });
 });
 
-describe('record-gate: 받을 때의 거부 — 유효한 예시에서 한 가지만 바꾼다', () => {
+describe('record-gate: 옛 검증 1~5 의 거부 — 유효한 예시에서 한 가지만 바꾼다', () => {
   const cases: { name: string; edit: (out: Json) => void; expected: (string | RegExp)[] }[] = [
-    {
-      name: '전부 문장인 comments (옛 형식)',
-      edit: (out) => {
-        out.comments = out.comments.map((c: Json) => `[${c.severity} / ${c.class}] ${c.text}`);
-      },
-      expected: ['reviewer-output.schema.json', '/comments/0 must be object'],
-    },
-    {
-      name: '문장과 객체가 섞인 comments',
-      edit: (out) => {
-        out.comments[1] = '[note / C] 문장으로 쓴 지적';
-      },
-      expected: ['reviewer-output.schema.json', '/comments/1 must be object'],
-    },
-    {
-      name: 'packet_gaps 누락',
-      edit: (out) => {
-        delete out.packet_gaps;
-      },
-      expected: ['reviewer-output.schema.json', "must have required property 'packet_gaps'"],
-    },
-    {
-      name: '없는 severity 값',
-      edit: (out) => {
-        out.comments[0].severity = 'major';
-      },
-      expected: ['reviewer-output.schema.json', '/comments/0/severity must be equal to one of the allowed values'],
-    },
-    {
-      name: 'class 누락',
-      edit: (out) => {
-        delete out.comments[1].class;
-      },
-      expected: ['reviewer-output.schema.json', "/comments/1 must have required property 'class'"],
-    },
-    {
-      name: '정의되지 않은 최상위 필드 — annotations',
-      edit: (out) => {
-        out.annotations = [{ source: 'system', text: 'Reviewer 가 쓸 자리가 아니다' }];
-      },
-      expected: ['reviewer-output.schema.json', '/ must NOT have additional properties'],
-    },
-    {
-      name: '정의되지 않은 최상위 필드 — 식별 필드(id)',
-      edit: (out) => {
-        out.id = 'G-001';
-      },
-      expected: ['reviewer-output.schema.json', '/ must NOT have additional properties'],
-    },
-    {
-      name: '빈 문장이 든 packet_gaps',
-      edit: (out) => {
-        out.packet_gaps.push('');
-      },
-      expected: ['reviewer-output.schema.json', '/packet_gaps/2 must NOT have fewer than 1 characters'],
-    },
-    {
-      name: 'class A 인 지적이 있는데 verdict 가 pass',
-      edit: (out) => {
-        out.comments[1].class = 'A';
-      },
-      expected: ['verdict is pass', '/comments/1/class is A'],
-    },
+    { name: '전부 문장인 comments (옛 형식)', edit: (o) => (o.comments = o.comments.map((c: Json) => `[${c.severity} / ${c.class}] ${c.text}`)), expected: ['reviewer-output.schema.json', 'output/comments/0: must be object'] },
+    { name: '문장과 객체가 섞인 comments', edit: (o) => (o.comments[1] = '[note / C] 문장으로 쓴 지적'), expected: ['output/comments/1: must be object'] },
+    { name: 'packet_gaps 누락', edit: (o) => delete o.packet_gaps, expected: ["must have required property 'packet_gaps'"] },
+    { name: '없는 severity 값', edit: (o) => (o.comments[0].severity = 'major'), expected: ['output/comments/0/severity: must be equal to one of the allowed values'] },
+    { name: 'class 누락', edit: (o) => delete o.comments[1].class, expected: ["output/comments/1: must have required property 'class'"] },
+    { name: '정의되지 않은 최상위 필드 — annotations', edit: (o) => (o.annotations = [{ source: 'system', text: 'x' }]), expected: ['output: must NOT have additional properties'] },
+    { name: '정의되지 않은 최상위 필드 — 식별 필드(id)', edit: (o) => (o.id = 'G-001'), expected: ['output: must NOT have additional properties'] },
+    { name: '빈 문장이 든 packet_gaps', edit: (o) => o.packet_gaps.push(''), expected: [/output\/packet_gaps\/\d+: must NOT have fewer than 1 characters/] },
+    { name: 'class A 인 지적이 있는데 verdict 가 pass', edit: (o) => (o.comments[1].class = 'A'), expected: ['verdict is pass', 'output/comments/1/class is A'] },
   ];
-
   for (const c of cases) {
     it(c.name, () => {
-      const runBefore = readFileSync(runFile(), 'utf8');
-      editOutput(c.edit);
-      expectRejected(recordGate(), runBefore, c.expected);
-      // 다른 이유로 거부된 것이 아니다 — 바꾸지 않은 예시는 같은 자리에서 받아들여진다.
-      cpSync(join(FIXTURES, 'data', TASK, 'steps', STEP, 'runs', `${RUN}.output.json`), outFile());
-      expect(recordGate().status).toBe(0);
+      expectRejected(() => recordGate(edited(c.edit)), ['rejected — 아무것도 기록하지 않았다', ...c.expected]);
+      expect(recordGate().status).toBe(0); // 다른 이유로 거부된 것이 아니다 — 바꾸지 않은 예시는 같은 자리에서 받아들여진다
     });
   }
 
-  it('출력 파일이 JSON 이 아니다', () => {
-    const runBefore = readFileSync(runFile(), 'utf8');
-    writeFileSync(outFile(), 'verdict: pass\n');
-    expectRejected(recordGate(), runBefore, ['not valid JSON']);
-  });
+  it('출력 파일이 JSON 이 아니다', () => expectRejected(() => recordGate('verdict: pass\n'), ['output: JSON 이 아니다']));
 
   it('출력 파일이 없다', () => {
-    const runBefore = readFileSync(runFile(), 'utf8');
-    rmSync(outFile());
-    expectRejected(recordGate(), runBefore, [`${RUN}.output.json not found`]);
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-002', refs, '--output', join(entry.inputs, 'no-such.json')]), ['--output 을 읽지 못했다']);
   });
 
-  it('Run 기록 파일이 없다', () => {
-    rmSync(runFile());
-    const r = recordGate();
-    expect(r.status, r.all).toBe(1);
-    expect(r.stderr).toContain(`${RUN}.yaml not found`);
-    expect(existsSync(gateFile())).toBe(false);
-    expect(existsSync(runFile())).toBe(false);
+  it('Run 이 Reviewer 의 것이 아니다 (worker 의 R-001)', () => {
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-001', refs, '--output', entry.file(OUTPUT)]), ['R-001 는 worker 의 Run 이다']);
   });
 
-  it('Run 기록이 Reviewer 의 것이 아니다', () => {
-    writeFileSync(runFile(), readFileSync(runFile(), 'utf8').replace('role: reviewer', 'role: worker'));
-    expectRejected(recordGate(), readFileSync(runFile(), 'utf8'), ['role is worker']);
+  it('없는 Run', () => {
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-007', refs, '--output', entry.file(OUTPUT)]), ['R-007 가 없다']);
   });
 
-  it('Run 기록의 id 가 인자와 다르다', () => {
-    writeFileSync(runFile(), readFileSync(runFile(), 'utf8').replace('id: R-002', 'id: R-003'));
-    expectRejected(recordGate(), readFileSync(runFile(), 'utf8'), ['id is R-003']);
-  });
-
-  it('Run 기록이 Run 스키마에 맞지 않는다', () => {
-    writeFileSync(runFile(), readFileSync(runFile(), 'utf8').replace('output_attempts: 1', 'output_attempts: 0'));
-    expectRejected(recordGate(), readFileSync(runFile(), 'utf8'), ['run.schema.json', '/output_attempts must be >= 1']);
-  });
-
-  it('Gate 파일이 이미 있으면 거부하고 기존 Gate 와 Run 기록은 그대로다', () => {
+  it('이미 기록한 Gate 를 다시 — Run 이 이미 completed 이고 Step 은 checking 이 아니다. 기존 Gate·Run 은 그대로', () => {
     expect(recordGate().status).toBe(0);
-    const gateBefore = readFileSync(gateFile(), 'utf8');
-    const runBefore = readFileSync(runFile(), 'utf8');
-    editOutput((out) => {
-      out.packet_gaps = [];
-      out.comments = [];
-    });
-    const r = recordGate();
-    expect(r.status, r.all).toBe(1);
-    expect(r.stderr).toContain('already exists');
-    expect(readFileSync(gateFile(), 'utf8')).toBe(gateBefore);
-    expect(readFileSync(runFile(), 'utf8')).toBe(runBefore);
+    expectRejected(() => recordGate(edited((o) => ((o.packet_gaps = []), (o.comments = [])))), ['R-002 는 이미 completed 다']);
   });
 
-  it('gates 디렉터리를 만들 수 없으면 Run 기록을 고치기 전에 거부한다', () => {
-    const runBefore = readFileSync(runFile(), 'utf8');
-    writeFileSync(join(taskDir(), 'steps', STEP, 'gates'), 'not a directory');
-    const r = recordGate();
-    expect(r.status, r.all).toBe(1);
-    expect(readFileSync(runFile(), 'utf8')).toBe(runBefore);
-  });
-});
-
-describe('record-gate: Run 기록에 이미 packet_gaps 가 있을 때', () => {
-  it('출력의 것과 같으면 받아들이고 Run 기록은 건드리지 않는다(Run 만 쓰이고 끝난 실행의 재실행)', () => {
-    expect(recordGate().status).toBe(0);
-    rmSync(join(taskDir(), 'steps', STEP, 'gates'), { recursive: true });
-    const runBefore = readFileSync(runFile(), 'utf8');
-    const r = recordGate();
-    expect(r.status, r.all).toBe(0);
-    expect(readFileSync(runFile(), 'utf8')).toBe(runBefore);
-    expect(existsSync(gateFile())).toBe(true);
-    expect(validateData().status).toBe(0);
+  it('G-NNN 모양이 아닌 gate id (G1, 파일 이름이 될 수 없는 것) 와 다음에 발급될 id 가 아닌 것', () => {
+    for (const [gateId, reason] of [['G1', 'G-NNN 의 정규형이 아니다'], ['G-001/../../x', 'G-NNN 의 정규형이 아니다'], ['G-002', '다음에 발급될 Gate id 는 G-001 다']]) {
+      expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', gateId!, 'R-002', refs, '--output', entry.file(OUTPUT)]), [reason!]);
+    }
   });
 
-  it('출력의 것과 다르면 거부한다', () => {
-    writeFileSync(runFile(), `${readFileSync(runFile(), 'utf8')}packet_gaps:\n  - 손으로 먼저 적어 둔 다른 내용\n`);
-    expectRejected(recordGate(), readFileSync(runFile(), 'utf8'), ['already has packet_gaps']);
-  });
-
-  it('Run 에는 [] 가 있는데 출력에는 항목이 있으면 거부한다', () => {
-    writeFileSync(runFile(), `${readFileSync(runFile(), 'utf8')}packet_gaps: []\n`);
-    expectRejected(recordGate(), readFileSync(runFile(), 'utf8'), ['already has packet_gaps']);
+  it('로컬 경로가 섞인 artifact 참조 (a,,C:\\x) 와 가장 새 버전이 아닌 것·없는 것', () => {
+    const first = refs.split(',')[0]!;
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-002', `a,,C:\\x`, '--output', entry.file(OUTPUT)]), ['"a" 는 artifact://', '"" 는 artifact://', '"C:\\\\x" 는 artifact://']);
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-002', first.replace('@v1', '@v2'), '--output', entry.file(OUTPUT)]), ['@v2 가 없다']);
   });
 });
 
 describe('record-gate: --annotations (Reviewer 가 아닌 출처의 정보)', () => {
   const fixtureAnnotations = join(FIXTURES, 'annotations.json');
 
-  it('주면 Gate 의 annotations 에 source, text(, ref)가 담기고 validate-data 를 통과한다', () => {
-    const r = recordGate('--annotations', fixtureAnnotations);
+  it('주면 Gate 의 annotations 에 담기고(Reviewer 의 지적과 섞이지 않는다) blob G-001.annotations.json 으로도 남는다', () => {
+    const r = recordGate(OUTPUT, '--annotations', fixtureAnnotations);
     expect(r.status, r.all).toBe(0);
-    const gate = readGate();
-    expect(gate.annotations).toEqual(JSON.parse(readFileSync(fixtureAnnotations, 'utf8')));
-    expect(gate.annotations.map((a: Json) => a.source)).toEqual(['worker', 'system']);
-    expect(gate.comments).toEqual(readOutput().comments); // Reviewer 의 지적과 섞이지 않는다
-    expect(gate).not.toHaveProperty('packet_gaps');
-    const v = validateData();
-    expect(v.status, v.all).toBe(0);
-    expect(v.stdout).toContain('4 checked, 0 failed');
+    const annotations = JSON.parse(readFileSync(fixtureAnnotations, 'utf8'));
+    expect(readGate().annotations).toEqual(annotations);
+    expect(readGate().comments).toEqual(JSON.parse(OUTPUT).comments);
+    expect(JSON.parse(readFileSync(join(taskDir(), 'steps', 'step-001', 'gates', 'G-001.annotations.json'), 'utf8'))).toEqual(annotations);
+    expect(validateData(dataDir).status).toBe(0);
   });
 
   it('옵션은 위치 인자 앞에 두어도 되고 --annotations=<file> 로 써도 되며 YAML 파일도 받는다', () => {
-    const file = join(tmp, 'annotations.yaml');
-    writeFileSync(file, '- source: system\n  text: "YAML 로 쓴 것: 콜론과 # 가 있다"\n');
-    const r = node(RECORD_GATE, [`--annotations=${file}`, taskDir(), STEP, GATE, RUN, REFS]);
+    const file = entry.file('- source: system\n  text: "YAML 로 쓴 것: 콜론과 # 가 있다"\n', 'annotations.yaml');
+    const r = entry.run('record-gate', [`--annotations=${file}`, dataDir, taskId, 'step-001', 'G-001', 'R-002', refs, '--output', entry.file(OUTPUT)]);
     expect(r.status, r.all).toBe(0);
     expect(readGate().annotations).toEqual([{ source: 'system', text: 'YAML 로 쓴 것: 콜론과 # 가 있다' }]);
-    expect(validateData().status).toBe(0);
   });
 
-  const bad: { name: string; value: unknown; expected: (string | RegExp)[] }[] = [
-    { name: '없는 source', value: [{ source: 'reviewer', text: 'x' }], expected: ['gate-result.schema.json', '/annotations/0/source must be equal to one of the allowed values'] },
-    { name: 'text 누락', value: [{ source: 'system' }], expected: ['gate-result.schema.json', "/annotations/0 must have required property 'text'"] },
-    { name: '정의되지 않은 필드', value: [{ source: 'system', text: 'x', severity: 'risk' }], expected: ['gate-result.schema.json', '/annotations/0 must NOT have additional properties'] },
-    { name: '배열이 아님', value: { source: 'system', text: 'x' }, expected: ['gate-result.schema.json', '/annotations must be array'] },
-    { name: '빈 배열', value: [], expected: ['empty array'] },
+  const bad: { name: string; value: unknown; expected: string[] }[] = [
+    { name: '없는 source', value: [{ source: 'reviewer', text: 'x' }], expected: ['gate-result.schema.json', '/annotations/0/source: must be equal to one of the allowed values'] },
+    { name: 'text 누락', value: [{ source: 'system' }], expected: ["/annotations/0: must have required property 'text'"] },
+    { name: '정의되지 않은 필드', value: [{ source: 'system', text: 'x', severity: 'risk' }], expected: ['/annotations/0: must NOT have additional properties'] },
+    { name: '배열이 아님', value: { source: 'system', text: 'x' }, expected: ['annotations: 하나 이상의 배열이어야 한다'] },
+    { name: '빈 배열', value: [], expected: ['annotations: 하나 이상의 배열이어야 한다'] },
   ];
   for (const c of bad) {
-    it(`잘못된 값은 거부한다 — ${c.name}`, () => {
-      const runBefore = readFileSync(runFile(), 'utf8');
-      expectRejected(recordGate('--annotations', writeAnnotations(c.value)), runBefore, c.expected);
-    });
+    it(`잘못된 값은 거부한다 — ${c.name}`, () => expectRejected(() => recordGate(OUTPUT, '--annotations', entry.file(JSON.stringify(c.value), 'a.json')), c.expected));
   }
 
-  it('파일이 없으면 거부한다', () => {
-    const runBefore = readFileSync(runFile(), 'utf8');
-    expectRejected(recordGate('--annotations', join(tmp, 'no-such-file.json')), runBefore, ['--annotations file not found']);
-  });
+  it('파일이 없으면 거부한다', () => expectRejected(() => recordGate(OUTPUT, '--annotations', join(entry.inputs, 'none.json')), ['--annotations 을 읽지 못했다']));
 });
 
 describe('record-gate: 호출 형태', () => {
-  it('위치 인자가 모자라거나 모르는 옵션이면 사용법을 출력하고 exit 2, 아무것도 쓰지 않는다', () => {
-    const runBefore = readFileSync(runFile(), 'utf8');
-    const few = node(RECORD_GATE, [taskDir(), STEP, GATE, RUN]);
-    expect(few.status).toBe(2);
-    expect(few.stderr).toContain('usage: record-gate');
-    const unknown = recordGate('--force');
-    expect(unknown.status).toBe(2);
-    expect(existsSync(gateFile())).toBe(false);
-    expect(readFileSync(runFile(), 'utf8')).toBe(runBefore);
-  });
-
-  it('task 디렉터리를 상대 경로로 주어도(절차 문서의 호출 예) 동작한다', () => {
-    const r = spawnSync(process.execPath, [RECORD_GATE, join('data', TASK), STEP, GATE, RUN, REFS], { cwd: tmp, encoding: 'utf8' });
-    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
-    expect(readGate().task_id).toBe(TASK);
-    expect(validateData().status).toBe(0);
+  it('위치 인자가 모자라거나, 옛 <task-dir> 모양이거나, 모르는 옵션(시각을 주려는 --at 포함)이면 사용법을 출력하고 exit 2, 아무것도 쓰지 않는다', () => {
+    const out = entry.file(OUTPUT);
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', '--output', out]), ['usage: record-gate'], 2);
+    expectRejected(() => entry.run('record-gate', [taskDir(), 'step-001', 'G-001', 'R-002', refs, '--output', out]), ['옛 인자 모양'], 2);
+    expectRejected(() => recordGate(OUTPUT, '--force'), ['모르는 옵션 --force'], 2);
+    expectRejected(() => recordGate(OUTPUT, '--at', '2026-01-01T00:00:00Z'), ['모르는 옵션 --at'], 2);
+    expectRejected(() => recordGate(OUTPUT, '--actor', 'human:x'), ['모르는 옵션 --actor'], 2);
+    expectRejected(() => entry.run('record-gate', [dataDir, 'T-12', 'step-001', 'G-001', 'R-002', refs, '--output', out]), ['T-NNNN 모양이 아니다'], 2);
+    expectRejected(() => entry.run('record-gate', [dataDir, taskId, 'step-001', 'G-001', 'R-002', refs]), ['--output 가 필요하다'], 2);
   });
 });
