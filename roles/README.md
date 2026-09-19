@@ -4,7 +4,7 @@
 
 | 역할 | 입력 | 출력 (스키마) | repo 권한 | 사람 개입 |
 |---|---|---|---|---|
-| [Intake](intake.md) | 사람과의 대화 | Task (`task.schema.json`) | 읽기 | 실시간 대화 |
+| [Intake](intake.md) | 사람과의 대화 | Task (`task.schema.json`) | 읽기 | 실시간 대화 — 두 단계로 확인받는다 (의도 확인 → 정의 확인) |
 | [Worker](worker.md) | Task, Step, 입력 Artifact, 이전 Feedback | Artifact 버전들 + 보고 (`worker-output.schema.json`) | **쓰기 (task branch)** | 관찰·개입 가능 |
 | [Reviewer](reviewer.md) | Step, Artifact, Worker 의 작업 노트, deterministic 결과 | Reviewer 출력 (`reviewer-output.schema.json`) — 시스템이 GateResult 로 기록한다 | 읽기 (Workspace 에서 검사를 실행할 수 있고 실행으로 생기는 git 이 무시하는 생성물은 괜찮다. 추적 파일과 실제 기록은 고치지 않는다. 임시 파일과 고쳐 보는 확인은 Workspace 밖에 자신이 만든 임시 디렉터리 하나에서만) | 관찰만 |
 | [Planner](planner.md) | Task, Ledger, 최근 GateResult, Skill 카탈로그 | Decision (`decision.schema.json`) | 읽기 | Step 제안 확인 단계에서 |

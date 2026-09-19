@@ -28,7 +28,7 @@
       "items": {
         "type": "string",
         "anyOf": [
-          { "description": "'task.brief' — Task 정의(목표, 배경, 제약, AC).", "const": "task.brief" },
+          { "description": "'task.brief' — Task 정의(문제, 목표, 성공 기준, 영향받는 사람과 시스템, 배경, 제약, 범위 밖, 열린 질문, AC).", "const": "task.brief" },
           { "description": "'task.ledger' — Task Ledger.", "const": "task.ledger" },
           {
             "description": "'artifact://<task>/<step>/<name>@v<N>' — 문서·코드 산출물의 특정 버전. 예: 'artifact://T-0012/step-002/repro-report@v2'. 버전(@v1 부터)은 필수다. <name> 은 영숫자로 시작하고 영숫자와 . _ - 만 쓴다.",

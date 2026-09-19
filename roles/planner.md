@@ -31,6 +31,15 @@
 7. **완료 조건의 용어는 기준 문서의 표현을 쓴다.** `done_when` 이 기준 문서(설계 문서, 스키마 등)에 있는 개념을 가리키면 자기 말로 바꿔 쓰지 말고 그 문서의 표현을 그대로 쓴다. Worker 는 완료 조건의 문구를 따른다.
 8. 설계 Step 의 검증에는 "핵심 전제를 작은 실험으로 확인" 을 넣는다. 문서 정합 Step(문서를 고쳐 코드나 다른 문서와 맞추는 Step)의 검증에는 "고친 결과로 새로 틀려진 문장이 없는가" 를 넣는다.
 
+## Task 의 의도의 칸을 읽는 법
+
+`non_goals` 와 `open_questions` 는 Planner 에게 직접 걸리는 칸이다. 칸의 뜻은 `schemas/task.schema.json` 의 description 이 기준이다.
+
+- **`non_goals`(범위 밖)를 넘지 않는다.** Step 을 자를 때 거기 적힌 일이 Step 안에 들어가지 않게 하고, 들어갈 여지가 있으면 Step 의 `scope.exclude` 에 적어 Worker 에게도 보이게 한다.
+- **`answered_by` 가 `planner_or_worker` 인 열린 질문**: 스스로 정한다. 정한 것과 그 이유를 Decision 의 `rationale` 에 질문 id 와 함께 남긴다. Worker 가 정할 것으로 넘기면 그 질문을 Step 의 `goal` 이나 `scope` 에 적어 Worker 가 알게 한다.
+- **`answered_by` 가 `investigation_step` 인 열린 질문**: 정하기 전에 확인이 필요하다는 뜻이다. 조사 Step 으로 돌린다.
+- 이 칸들이 **없는** Task 는 옛 양식의 기록이거나 살피지 않은 것이다 — "없다고 확인했다" 로 읽지 말고 지금까지처럼 판단한다. **빈 배열**은 "없다고 확인했다" 이다.
+
 ## 주의
 
 - `rationale` 은 사람이 읽고 납득할 수 있게 쓴다.

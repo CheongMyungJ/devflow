@@ -34,3 +34,5 @@
 | [0010](0010-backend-neutral-runner.md) | 백엔드 중립 Runner, resume 은 최적화로만 |
 | [0011](0011-file-store-decisions.md) | Store 파일 구현체의 결정 (ADR-0008 결정 4 의 일부를 대체) |
 | [0012](0012-role-interface-schemas.md) | 역할 출력의 스키마, packet_gaps 의 자리, 옛 형식 기록과의 공존 |
+| [0013](0013-task-intent-fields.md) | Task 정의에 의도의 칸, AC 는 성공 기준을 가리킨다, 사람이 답할 질문이 남으면 발행되지 않는다 |
+| [0014](0014-two-stage-intake.md) | Intake 는 두 단계 — 의도 확인 뒤에 정의 확인 |
