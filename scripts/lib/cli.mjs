@@ -14,7 +14,7 @@ export function usageExit(usage, message) {
 /**
  * 인자를 나눈다. spec:
  *   usage: 사용법 문장
- *   positional: 위치 인자의 이름(앞 둘은 언제나 data-dir, task-id)
+ *   positional: 위치 인자의 이름(앞 둘은 data-dir, task-id — issue-task 만 data-dir 과 정의 파일)
  *   oldShape: 옛 입구의 위치 인자 수(<task-dir> 로 시작하던 모양) — 그 수로 부르면 사용법 오류
  *   options: { 이름: { value?: true, repeat?: true, required?: true } } — value 가 없으면 값 없는 깃발
  *   human: true 면 --actor human:<id> 필수(사람이 한 일의 입구). false 면 --actor 를 받지 않는다(시스템·역할 세션의 기록)

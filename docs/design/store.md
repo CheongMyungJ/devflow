@@ -77,7 +77,7 @@
 - 엔티티는 YAML, 이벤트는 JSON Lines. 줄바꿈은 항상 LF, 인코딩은 UTF-8.
 - `dataDir` 은 구현체 생성자 인자다. 인터페이스에는 나타나지 않는다.
 - "Task 가 존재한다" 의 정의: `events.jsonl` 에 seq 1 이 있다. 디렉터리만 있고 이벤트가 없는 것은 버려진 ID 다.
-- `.locks/`, `.pending-*/`, `.rollbacks` 를 `devflow-data/.gitignore` 에 추가해야 한다. `devflow-data` 는 다른 repo 이므로 이 구현체를 만든 Task(T-0001)의 범위 밖이고, 후속 작업으로 남겼다(5절 F8).
+- `.locks/`, `.pending-*/`, `.rollbacks` 는 기록이 아니다. `devflow-data/.gitignore` 에 이 세 줄이 있어 어느 깊이에 생겨도 git 에 잡히지 않는다(5절 F8). 이름은 `src/store/file/names.mjs`(`LOCKS_DIR`, `PENDING_PREFIX`, `ROLLBACKS_FILE`) 한 곳에 있다. 내부 파일이 실제로 있는 상태에서 `git status` 에 기록 파일만 보이는지는 `.gitignore` 사본으로 `tests/task-flow.test.ts` 가, 실제 checkout 의 `.gitignore` 가 그 이름들을 가리는지는 `npm run check-gitignore -- <data-dir>` 가 확인한다(T-0006 AC7).
 
 ### 2.2 Lock
 
@@ -345,7 +345,7 @@ blob:<taskId>/<owner>.<name>              Task 수준 (Run 만)
 - **모양**: UUID 의 소문자 문자열(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`). 파일 구현체는 `crypto.randomUUID()`(버전 4, 난수 122비트)로 만든다. 여러 프로세스가 조율 없이 만들어도 겹치지 않고, 시각·호스트·경로를 담지 않는다. Store 는 시계를 읽지 않으므로(1절) 시각이 들어가는 형식(UUID v7, ULID)은 쓰지 않는다. 패턴은 버전을 고정하지 않아 DB 구현체가 자기 방식의 UUID 를 쓸 수 있다.
 - **부여**: `commit()` 과 `createTask()` 의 호출마다 Store 가 하나를 만들어 그 commit 의 모든 이벤트에 같은 값을 넣는다. 구현체가 안에서 재시도해 `ChangeInput` 을 다시 부르더라도 한 호출의 값은 같아야 한다 — 재시도하는 구현은 식별자를 재시도 루프 밖에서 만든다(`src/store/types.ts` 의 `ChangeInput` 주석. 파일 구현체는 재시도하지 않고 lock 을 잡기 전에 만든다 — 3.11). 호출자는 주지 않는다 — `NewEvent` 에서 `commit_id` 를 뺐다. 타입을 우회해 이벤트에 `commit_id` 를 담아 보내면 `InvalidChangeError`.
 - **보이는 곳**: `CommitResult.commitId`, `CommitOutcomeUnknownError.commitId`, 기록된 이벤트의 `commit_id`. `createTask` 의 반환 타입은 바꾸지 않는다(시그니처 유지) — 돌려주는 `events[].commit_id` 에 있다.
-- **옛 이벤트와의 공존**: 확인하는 쪽은 언제나 자기 commit 의 새 식별자를 찾는다. 식별자가 없는 이벤트는 어떤 식별자와도 같지 않으므로 "내 것이 아니다" 로 읽히고, 따로 가르는 장치가 없다. T-0006 전의 0단계 운영 스크립트(append-events, propose-step, record-gate)는 Store 를 거치지 않고 `commit_id` 를 쓰지 않았으므로 그것들이 쓴 이벤트는 식별자가 없다. T-0006 부터 `append-events` 는 Store 의 commit 으로 쓰므로(`commands.appendEvents` — commands.md 6절) 식별자가 붙고, step-004 부터는 Step 한 바퀴의 입구(`submit-run`, `complete-run`, `fail-run`, `record-gate`, `propose-step`, `define-step`, `request-revision`, `approve-step`, `add-feedback`)도 command 로 써서 같다. Task 발행과 done 의 입구는 T-0006 의 뒤 Step 에서 같게 바뀐다.
+- **옛 이벤트와의 공존**: 확인하는 쪽은 언제나 자기 commit 의 새 식별자를 찾는다. 식별자가 없는 이벤트는 어떤 식별자와도 같지 않으므로 "내 것이 아니다" 로 읽히고, 따로 가르는 장치가 없다. T-0006 전의 0단계 운영 스크립트(append-events, propose-step, record-gate)는 Store 를 거치지 않고 `commit_id` 를 쓰지 않았으므로 그것들이 쓴 이벤트는 식별자가 없다. T-0006 부터 `append-events` 는 Store 의 commit 으로 쓰므로(`commands.appendEvents` — commands.md 6절) 식별자가 붙고, step-004 부터는 Step 한 바퀴의 입구(`submit-run`, `complete-run`, `fail-run`, `record-gate`, `propose-step`, `define-step`, `request-revision`, `approve-step`, `add-feedback`)도 command 로 써서 같다. step-005 부터는 Task 발행(`issue-task`)과 done(`complete-task`)의 입구도 그렇다 — 새 입구로 쓴 Task 는 `task.created` 부터 모든 이벤트에 식별자가 있다.
 - **`.pending` 의 token 과의 관계**: 별개다. token 은 lock 획득마다의 난수로 파일 구현체 안의 개념이다(읽기가 잡는 lock 에도 있고 DB 구현체에는 없다). `commit_id` 는 인터페이스의 개념이다. `.pending-<token>/` 의 이름과 `commit.json` 의 모양은 그대로이고, `lines` 에 `commit_id` 가 들어 있으므로 2.5 의 내용 대조가 식별자까지 대조한다 — 같은 내용의 다른 commit 의 꼬리를 자기 것으로 오인할 여지가 줄어든다. 이벤트 줄의 필드 순서는 `seq`, `task_id`, `commit_id`, 나머지.
 - 결과를 알 수 없는 commit 의 확인 절차는 `docs/design/commands.md` 3절.
 
@@ -548,7 +548,7 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 | F5 | `Event.data` 의 이벤트 종류별 내용이 정의되어 있지 않다 (`step.status_changed` 의 from/to 등) | Orchestrator 를 만들 때 종류별 payload 표를 정하고 스키마에 `if/then` 으로 추가. `task.created` 는 payload 가 필요 없어 이번 Task 에는 영향 없음 |
 | F6 | `Event.actor` 형식이 description 에만 있고 강제되지 않는다 | **처리됨(T-0005 step-002)**: `schemas/event.schema.json` 의 `actor` 에 pattern `^(human:.+\|system\|role:(intake\|worker\|reviewer\|planner))$`. 옛 이벤트는 모두 맞는다. 테스트 `tests/schemas.artifact-event.test.ts` |
 | F7 | Run 의 파일 위치가 README 에는 `runs/R-001.transcript.jsonl` 만 있고 Run 기록 자체의 위치가 없다. Step 에 속하지 않는 Run(Intake, Planner)의 위치도 없다 | `runs/<id>.yaml` 추가, Task 수준 `T-NNNN/runs/` 추가 |
-| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | `devflow-data` 는 T-0001 의 대상 repo 가 아니어서 후속 작업으로 남겼다. Store 를 실제 `devflow-data` 에 쓰기 전에 필요하다 |
+| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | **처리됨**: `devflow-data/.gitignore` 에 세 줄이 있다(T-0002 에서 더했다). 확인은 T-0006 — git 테스트 `tests/task-flow.test.ts`(사본으로, 내부 파일이 실제로 있는 상태)와 실제 checkout 대조 `npm run check-gitignore` (2.1) |
 | F9 | 대상 repo 안에 있는 문서 산출물(이 문서가 그 예)을 Artifact 로 어떻게 표현할지 모호하다. `type: document` 인데 내용은 `content_key` 가 아니라 `code`(commit 참조)로 가리켰다 | **처리됨(T-0005 step-002)**: artifact 스키마의 `stored_in: store \| repo` 와 `paths`(repo 상대 경로), 둘의 조건과 옛 기록용 규칙(3.6). `content_key`·`work_notes_key` 는 Store 의 blob key 문법. validate-data 가 meta 를 검사한다. Store 는 Artifact 를 쓸 때 key 의 Task·Step 과 blob 의 있음을 확인한다(3.11). 테스트 `tests/schemas.artifact-event.test.ts`, `tests/validate-data.test.ts` |
 | F10 | `AGENTS.md` 7번과 `devflow-data/README.md` 의 "이벤트를 수정·삭제하지 않는다" 는 성립하지 않은 commit 의 잔여물을 잘라내는 복구(2.5)와 글자 그대로는 충돌한다 | `AGENTS.md` 7번은 고쳤다(ADR-0011). `devflow-data/README.md` 는 후속 작업으로 남겼다 |
 | F11 | GateResult 의 `verdict` 가 pass/fail 뿐이라 "통과했지만 구현 전에 고쳐야 할 결함이 있다"(G-001 이 그랬다)를 표현하지 못한다. 사람이 comments 를 다 읽어야 알 수 있다 | `comments` 를 `{ severity: defect \| risk \| note, text }` 로 구조화하거나 verdict 에 `pass_with_concerns` 추가 |
@@ -556,4 +556,4 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 
 F9~F11 은 T-0001 의 설계 v1 에 대한 Gate(G-001), F12 는 v2 에 대한 Gate(G-002)와 검토 과정에서 나왔다.
 
-F6, F9, F12 는 T-0005 에서 처리했다. F2 와 F5 는 남아 있다(F2 는 Decision 의 `human_edit` 과 함께, F5 는 Orchestrator 를 만들 때). F3 은 해당 구성 요소를 만들 때가 적기다. F4, F7, F8 은 `devflow-data` 의 문서·설정 변경이다.
+F6, F9, F12 는 T-0005 에서 처리했다. F2 와 F5 는 남아 있다(F2 는 Decision 의 `human_edit` 과 함께, F5 는 Orchestrator 를 만들 때). F3 은 해당 구성 요소를 만들 때가 적기다. F4, F7 은 `devflow-data` 의 문서 변경이다. F8 은 처리되었다(T-0006 에서 확인).
