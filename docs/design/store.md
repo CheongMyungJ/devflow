@@ -284,7 +284,7 @@ T-0005 step-001 의 설계다. 구현은 뒤의 Step 이 하고, 구현하며 �
 - **Task 안의 ID 유일성도 같은 오류다**: 다른 자리(다른 수준이나 다른 Step)에 같은 ID 의 기록이 있으면 가변 kind 라도 `AlreadyExistsError` 다. 예: Step 수준의 R-002 가 있는데 `step_id` 없는 R-002 를 쓰는 것, step-001 에 G-003 이 있는데 step-002 의 G-003 을 쓰는 것. 가변 kind 가 같은 자리의 같은 key 에 쓰는 것은 교체다.
 - `AlreadyExistsError` 를 따로 두는 이유: `ConflictError`(다시 읽고 판단해 재시도), `InvalidChangeError`(버그)와 호출자가 할 일이 다르다. 결과를 모르는 채 다시 보낸 Gate 기록처럼 "이미 있다" 가 곧 원하던 상태일 수 있다 — 호출자는 `get` 으로 확인할 수 있다.
 - **파일 구현체**: 2.4 의 4단계(lock 안, 디스크를 건드리기 전)에서 확인한다. 1단계의 복구가 끝난 뒤이므로 디스크가 기준이다(뒷정리가 남은 경우에는 commit 을 쌓지 않고 물러난다 — 2.9).
-- **Artifact 의 `approved` (승인 때 사람이 고른다)**: 지금의 0단계는 승인 때 meta 의 `approved` 를 같은 파일에서 `false → true` 로 다시 쓴다(기존 meta 34개 중 19개가 true). 이 절은 권고안 (A) 로 적는다 — **승인은 Artifact 밖의 기록(`kind: approval` 인 Feedback 과 `artifact.approved` 이벤트)으로만 나타낸다.** 두 기록은 지금도 승인 19건 모두에 있다. Store 는 Artifact meta 를 다시 쓰지 않고, `approved` 는 옛 기록을 읽기 위한 필드로 남는다. 사람이 (B) "`approved` 의 `false → true` 한 방향 전이만 허용" 을 고르면 이 항목만 바뀐다: Store 가 lock 안에서 저장된 meta 를 읽어 `approved` 말고는 같고 `false`(또는 없음)에서 `true` 로 가는 쓰기만 받는다. 선택지와 결과는 작업 노트에 있다.
+- **Artifact 의 `approved` (사람이 (A) 를 골랐다 — T-0005 step-001 의 승인 F-001. artifact 스키마의 `approved` 는 step-002 에서 옛 기록의 필드로 설명을 바꾸고 `default` 를 뺐다)**: 지금의 0단계는 승인 때 meta 의 `approved` 를 같은 파일에서 `false → true` 로 다시 쓴다(기존 meta 34개 중 19개가 true). 이 절은 (A) 로 적는다 — **승인은 Artifact 밖의 기록(`kind: approval` 인 Feedback 과 `artifact.approved` 이벤트)으로만 나타낸다.** 두 기록은 지금도 승인 19건 모두에 있다. Store 는 Artifact meta 를 다시 쓰지 않고, `approved` 는 옛 기록을 읽기 위한 필드로 남는다. 사람이 (B) "`approved` 의 `false → true` 한 방향 전이만 허용" 을 고르면 이 항목만 바뀐다: Store 가 lock 안에서 저장된 meta 를 읽어 `approved` 말고는 같고 `false`(또는 없음)에서 `true` 로 가는 쓰기만 받는다. 선택지와 결과는 작업 노트에 있다.
 
 ### 3.3 blob
 
