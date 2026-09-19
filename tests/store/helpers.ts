@@ -75,7 +75,7 @@ export type CrashPoint = 'during-pending' | 'after-pending' | 'torn-append' | 'p
 
 export interface ChildArgs {
   dataDir: string;
-  action: 'commit' | 'create' | 'update';
+  action: 'commit' | 'create' | 'update' | 'issue';
   taskId?: string;
   count?: number;
   label?: string;
