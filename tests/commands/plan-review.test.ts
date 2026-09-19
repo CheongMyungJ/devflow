@@ -72,6 +72,22 @@ describe('recordDecision', () => {
     expect(await expectRejected(dataDir, () => recordDecision(sys, { taskId, runId: 'R-002', output: proposal(), outputText: TEXT }))).toMatch(/닫히지 않은 Step\(step-002 proposed\)/);
     expect(await expectRejected(dataDir, () => recordDecision(sys, { taskId, runId: 'R-001', output: proposal({ action: 'ask_human', next_step: undefined, question: { text: '?' } }), outputText: TEXT }))).toMatch(/이미 completed 다/);
   });
+
+  it('거부 — 닫히지 않은 Step 이 있을 때 skill 만인 next_step 도 (G-003 A)', async () => {
+    const { dataDir, taskId, sys } = await setupRound('in_review');
+    await submitRun(sys, { taskId, role: 'planner', access: 'read', backend: 'fake', sessionPath: 'new' });
+    const skillOnly = proposal({ next_step: { skill: 'example@1', params: {} } });
+    expect(await expectRejected(dataDir, () => recordDecision(sys, { taskId, runId: 'R-001', output: skillOnly, outputText: TEXT }))).toMatch(/닫히지 않은 Step\(step-001 in_review\)/);
+  });
+
+  it('skill 만인 next_step 은 닫히지 않은 Step 이 없을 때 Decision 과 Run 완료만 — Step 을 만들지 않는다', async () => {
+    const { store, taskId, sys } = await planning();
+    const { decision, step, result } = await recordDecision(sys, { taskId, runId: 'R-001', output: proposal({ next_step: { skill: 'example@1', params: {} } }), outputText: TEXT });
+    expect(decision.next_step).toEqual({ skill: 'example@1', params: {} });
+    expect(step).toBeUndefined();
+    expect((await store.list('step', { taskId })).items).toEqual([]);
+    expect(result.events.map((e) => e.type)).toEqual(['run.completed', 'decision.made']);
+  });
 });
 
 describe('defineStep', () => {
@@ -227,7 +243,7 @@ describe('approveStep', () => {
 });
 
 describe('addFeedback', () => {
-  it('질문·지시·요구사항·답 — Feedback 과 feedback.added(data.kind, channel), status 는 그대로. 옛 버전의 참조도 target 으로 받는다', async () => {
+  it('질문·지시·요구사항·답 — Feedback 과 feedback.added(data.kind, channel), status 는 그대로', async () => {
     const { store, taskId, human, refs } = await inReview();
     const { feedback, result } = await addFeedback(human, { taskId, stepId: 'step-001', kind: 'question', channel: 'review', target: { artifactRef: refs[0]!, location: '2절', runId: 'R-001' }, text: '이건 왜?' });
     expect(feedback).toEqual({ id: 'F-001', task_id: taskId, step_id: 'step-001', kind: 'question', channel: 'review', target: { artifact_ref: refs[0], location: '2절', run_id: 'R-001' }, text: '이건 왜?', author: 'tester', created_at: NOW_SECONDS });
@@ -241,6 +257,9 @@ describe('addFeedback', () => {
     ['kind approval (approveStep 이 쓴다)', 'human', { kind: 'approval' }, /approval 는 받지 않는다 — approveStep/],
     ['kind revision_request (requestRevision 이 쓴다)', 'human', { kind: 'revision_request' }, /revision_request 는 받지 않는다 — requestRevision/],
     ['로컬 경로 target', 'human', { target: { artifactRef: 'D:/data/x.md' } }, /artifact:\/\/<task>/],
+    ['없는 버전 target', 'human', { target: { artifactRef: 'artifact://T-0001/step-001/plan@v7' } }, /plan@v7 가 없다/],
+    ['다른 Step 의 target', 'human', { target: { artifactRef: 'artifact://T-0001/step-002/plan@v1' } }, /T-0001\/step-001 의 것이 아니다/],
+    ['다른 Task 의 target', 'human', { stepId: undefined, target: { artifactRef: 'artifact://T-0002/step-001/plan@v1' } }, /T-0001 의 것이 아니다/],
     ['없는 Run target', 'human', { target: { runId: 'R-077' } }, /R-077 가 없다/],
     ['없는 Decision target', 'human', { target: { decisionId: 'D-077' } }, /D-077 가 없다/],
     ['target 의 모르는 필드', 'human', { target: { path: 'C:\\x' } }, /target.path: 모르는 입력이다/],
@@ -249,6 +268,18 @@ describe('addFeedback', () => {
   ] as const)('거부 — 아무것도 쓰지 않는다: %s', async (_label, who, patch, reason) => {
     const { dataDir, taskId, sys, human } = await inReview();
     expect(await expectRejected(dataDir, () => addFeedback(who === 'human' ? human : sys, { taskId, stepId: 'step-001', kind: 'question', channel: 'review', text: 'x', ...(patch as object) } as never))).toMatch(reason);
+  });
+
+  it('거부 — 가장 새 버전이 아닌 target (G-003 A): v2 가 생긴 뒤의 v1, Step 을 주든 안 주든 kind 가 무엇이든', async () => {
+    const { dataDir, taskId, sys, human, refs } = await inReview();
+    await requestRevision(human, { taskId, stepId: 'step-001', artifactRef: refs[0]!, text: 't' });
+    const { refs: v2 } = await workerRound(sys, taskId, SHA_C); // v2, checking
+    for (const [kind, stepId] of [['question', 'step-001'], ['direction', undefined], ['answer', 'step-001']] as const) {
+      const input = { taskId, ...(stepId ? { stepId } : {}), kind, channel: 'review' as const, target: { artifactRef: refs[0]! }, text: 'x' };
+      expect(await expectRejected(dataDir, () => addFeedback(human, input))).toMatch(/plan@v1 는 plan 의 가장 새 버전이 아니다 \(가장 새 것은 v2\)/);
+    }
+    const { feedback } = await addFeedback(human, { taskId, stepId: 'step-001', kind: 'question', channel: 'review', target: { artifactRef: v2[0]! }, text: 'x' });
+    expect(feedback.target?.artifact_ref).toBe(v2[0]);
   });
 });
 

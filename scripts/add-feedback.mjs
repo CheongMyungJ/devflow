@@ -1,6 +1,7 @@
 // 0단계 운영의 입구: 질문·실행 중 지시·요구사항·답 — commands.addFeedback (docs/design/commands.md 6.1·6.2·6.3).
 // 사용: npm run add-feedback -- <data-dir> <task-id> --kind question|direction|requirement|answer --channel review|live|plan
 //         [--step <step-id>] [--artifact-ref <ref>] [--location <text>] [--run R-NNN] [--decision D-NNN] (--text <text> | --text-file <file>) --actor human:<id>
+// --artifact-ref 는 이 Task(--step 이 있으면 그 Step)의 것이고 그 이름의 가장 새 버전이어야 한다.
 // approval 은 approve-step, revision_request 는 request-revision 이 쓴다(한 기록은 한 command). Step 의 status 는 바꾸지 않는다.
 // 한 commit: Feedback, feedback.added(data.kind, data.channel). 거부되면 exit 1, 사용법 오류는 exit 2.
 import { assemble } from './lib/assemble.mjs';

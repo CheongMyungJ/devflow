@@ -112,7 +112,7 @@ export async function latestVersion(ctx: CommandContext, taskId: string, stepId:
 
 /**
  * artifact 참조 검사(commands.md 6.3): 문법(parseArtifactRef — 로컬 경로가 섞이면 맞지 않는다), 이 command 의 Task·Step 과 같은가,
- * 그 버전의 Artifact 가 있는가, (latest 면) 그 이름의 가장 새 버전인가. 까닭은 reasons 에 모은다. 맞으면 나눈 것을 돌려준다.
+ * 그 버전의 Artifact 가 있는가, 그 이름의 가장 새 버전인가. 까닭은 reasons 에 모은다. 맞으면 나눈 것을 돌려준다.
  */
 export async function checkArtifactRef(
   ctx: CommandContext,
@@ -120,7 +120,6 @@ export async function checkArtifactRef(
   where: { taskId: string; stepId?: string },
   label: string,
   reasons: string[],
-  latest = true,
 ): Promise<ParsedArtifactRef | undefined> {
   const parsed = typeof ref === 'string' ? parseArtifactRef(ref) : undefined;
   if (parsed === undefined) {
@@ -135,7 +134,7 @@ export async function checkArtifactRef(
     reasons.push(`${label}: ${ref} 가 없다`);
     return undefined;
   }
-  const newest = latest ? await latestVersion(ctx, parsed.taskId, parsed.stepId, parsed.name) : parsed.version;
+  const newest = await latestVersion(ctx, parsed.taskId, parsed.stepId, parsed.name);
   if (parsed.version !== newest) {
     reasons.push(`${label}: ${ref} 는 ${parsed.name} 의 가장 새 버전이 아니다 (가장 새 것은 v${newest})`);
     return undefined;

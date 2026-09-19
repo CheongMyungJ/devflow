@@ -4,7 +4,7 @@
 //   <output.yaml>: Planner 의 출력 파일(Decision 모양, 데이터 디렉터리 밖 — T-0006 F-001 1-가). 원문은 blob R-NNN.output.yaml 로 남는다.
 // 한 commit: Decision(id·task_id·planner_run_id·created_at 은 도구가 채운다 — Planner 가 적은 값은 원문에만 남는다), Planner Run(completed,
 // packet_gaps ← Decision 의 packet_gaps), run.completed, decision.made, next_step 이면 step.yaml(proposed, created_from)과 step.proposed.
-// proposed 로의 step.status_changed 는 쓰지 않는다(step.proposed 가 status 를 정한다). 닫히지 않은 Step 이 있으면 next_step 을 거부한다.
+// proposed 로의 step.status_changed 는 쓰지 않는다(step.proposed 가 status 를 정한다). 닫히지 않은 Step 이 있으면 next_step(step 이든 skill 이든)을 거부한다.
 // 옛 모양(<task-dir> <decision-id> <step-id>)은 사용법 오류(exit 2). 거부되면 exit 1 — 아무것도 쓰지 않았다.
 import { assemble } from './lib/assemble.mjs';
 import { checkTaskId, committed, intOption, parseEntryArgs, readStructured, report } from './lib/cli.mjs';

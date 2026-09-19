@@ -30,6 +30,7 @@ const DECISION_TOOL_FILLED = ['id', 'task_id', 'planner_run_id', 'created_at'] a
 /**
  * Planner 의 출력을 받아들인다: blob R-NNN.output.yaml(원문), Decision, Run(completed, ended_at, packet_gaps ← Decision 의 packet_gaps, output_attempts),
  * run.completed, decision.made, next_step 이고 step 이 있으면 step.yaml(proposed, created_from)과 step.proposed — 한 commit.
+ * next_step 이면(step 이든 skill 이든) 닫히지 않은 Step 이 있을 때 거부한다. skill 만인 next_step 은 Decision 만 쓰고 Step 을 만들지 않는다.
  * step.status_changed 는 쓰지 않는다: proposed 는 step.proposed 가 정한다(commands.md 6절 원칙의 "status 를 정한 마지막 이벤트").
  * action 이 done·ask_human·abort·rework 이면 Task·Step 의 status 는 바꾸지 않는다.
  */
@@ -39,7 +40,8 @@ export async function recordDecision(ctx: CommandContext, input: RecordDecisionI
   if (typeof input.output !== 'object' || input.output === null || Array.isArray(input.output)) throw new RejectedInputError(['output: Decision 모양의 객체여야 한다']);
   if (input.outputAttempts !== undefined && !isPositiveInteger(input.outputAttempts)) throw new RejectedInputError(['outputAttempts: 1 이상의 정수여야 한다']);
   const given = input.output as Record<string, unknown>;
-  const proposal = given['action'] === 'next_step' ? (given['next_step'] as { step?: unknown } | undefined)?.step : undefined;
+  const isNextStep = given['action'] === 'next_step';
+  const proposal = isNextStep ? (given['next_step'] as { step?: unknown } | undefined)?.step : undefined;
   const at = recordedAt(ctx.clock);
   let decision!: Decision;
   let step: Step | undefined;
@@ -47,12 +49,13 @@ export async function recordDecision(ctx: CommandContext, input: RecordDecisionI
   const result = await commitAfterReading(ctx, taskId, async () => {
     await openTask(ctx, taskId);
     const run = await submittedRun(ctx, taskId, runId, 'planner');
-    if (proposal !== undefined) {
+    if (isNextStep) {
+      // step 이든 skill 이든 next_step 이면 — Step 은 하나씩 돈다(commands.md 6.3).
       const { items } = await ctx.store.list('step', { taskId });
       const open = items.filter((s) => s.status !== 'closed' && s.status !== 'cancelled');
       if (open.length) throw new RejectedInputError([`output.next_step: 닫히지 않은 Step(${open.map((s) => `${s.id} ${s.status}`).join(', ')})이 있다 — Step 은 하나씩 돈다`]);
-      nextStepStatus('recordDecision', null, 'next_step');
     }
+    if (proposal !== undefined) nextStepStatus('recordDecision', null, 'next_step');
 
     return (c) => {
       const id = c.nextId('decision');

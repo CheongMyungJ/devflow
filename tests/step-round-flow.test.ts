@@ -105,7 +105,7 @@ describe('Step 한 바퀴 — 입구만으로', () => {
     run('submit-run', reviewer, 'checking');
     run('record-gate', ['step-001', 'G-003', 'R-008', refs(3), '--output', reviewerOutput('pass')], 'in_review');
     // 질문, 승인
-    expect(run('add-feedback', ['--step', 'step-001', '--kind', 'question', '--channel', 'review', '--artifact-ref', `artifact://${taskId}/step-001/plan@v1`, '--text', '왜?', ...human], 'in_review').map((e) => e.type)).toEqual(['feedback.added']);
+    expect(run('add-feedback', ['--step', 'step-001', '--kind', 'question', '--channel', 'review', '--artifact-ref', `artifact://${taskId}/step-001/plan@v3`, '--text', '왜?', ...human], 'in_review').map((e) => e.type)).toEqual(['feedback.added']);
     const approved = run('approve-step', ['step-001', '--gate', 'G-003', '--text', '승인.', ...human], 'closed');
     expect(approved.map((e) => [e.type, e.ref ?? e.data])).toEqual([
       ['feedback.added', 'F-003'],

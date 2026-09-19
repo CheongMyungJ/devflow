@@ -131,7 +131,8 @@ export interface ArtifactSource {
   /** Step 의 outputs 에 선언된 이름. */
   name: string;
   /**
-   * `code:<base-sha>..<head-sha>`(code_change — repo·branch 는 Task 의 target 에서),
+   * `code:<base-sha>..<head-sha>`(code_change — repo·branch 는 Task 의 target 에서. 변경 전체라 paths 가 없어 stored_in 을 쓰지 않는다 —
+   *   지금 스키마는 stored_in repo 에 paths 를 요구한다. 옛 기록 분기로 기록된다: commands.md 6.2),
    * `repo:<base-sha>..<head-sha>:<path>[,<path>…]`(대상 repo 안의 문서, stored_in repo),
    * `blob:<label>`(이 commit 의 blob — 지금은 work-notes 뿐, stored_in store).
    */

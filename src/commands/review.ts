@@ -141,6 +141,7 @@ export interface AddFeedbackInput {
   stepId?: string;
   kind: (typeof ADDABLE_FEEDBACK_KINDS)[number];
   channel: Feedback['channel'];
+  /** artifactRef 는 이 Task(stepId 가 있으면 그 Step)의 것이고 있으며 그 이름의 가장 새 버전이어야 한다. runId·decisionId 는 있어야 한다. */
   target?: { artifactRef?: string; location?: string; runId?: string; decisionId?: string };
   text: string;
 }
@@ -163,7 +164,7 @@ export async function addFeedback(ctx: CommandContext, input: AddFeedbackInput):
     await openTask(ctx, taskId);
     if (stepId !== undefined) await stepOf(ctx, taskId, stepId);
     const reasons: string[] = [];
-    if (target?.artifactRef !== undefined) await checkArtifactRef(ctx, target.artifactRef, { taskId, ...(stepId !== undefined ? { stepId } : {}) }, 'target.artifactRef', reasons, false);
+    if (target?.artifactRef !== undefined) await checkArtifactRef(ctx, target.artifactRef, { taskId, ...(stepId !== undefined ? { stepId } : {}) }, 'target.artifactRef', reasons);
     if (target?.runId !== undefined && !(isCanonicalId('run', target.runId) && (await ctx.store.get('run', { taskId, id: target.runId })))) reasons.push(`target.runId: ${taskId} 에 ${target.runId} 가 없다`);
     if (target?.decisionId !== undefined && !(isCanonicalId('decision', target.decisionId) && (await ctx.store.get('decision', { taskId, id: target.decisionId })))) reasons.push(`target.decisionId: ${taskId} 에 ${target.decisionId} 가 없다`);
     rejectIf(reasons);

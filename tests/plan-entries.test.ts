@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { describe, expect, it } from 'vitest';
-import { submitRun } from '../src/commands/index.js';
-import { ctxOf } from './commands/round-helpers.js';
+import { recordGate, requestRevision, submitRun } from '../src/commands/index.js';
+import { ctxOf, reviewerOutput, SHA_C, setupRound, submitReviewer, workerRound } from './commands/round-helpers.js';
 import { allText, containsPath, entryRunner, validateData } from './entry-helpers.js';
 import { contentSnapshot, createSample, newStore, tempDataDir } from './store/helpers.js';
 import { stepDefinition } from './store/records.js';
@@ -54,6 +54,8 @@ describe('propose-step 입구 (commands.recordDecision)', () => {
     const store = newStore(dataDir);
     await submitRun(ctxOf(store), { taskId, role: 'planner', access: 'read', backend: 'fake', sessionPath: 'new' });
     expectUnchanged(dataDir, 'propose-step', [dataDir, taskId, 'R-002', entry.file(decisionYaml())], 1, /닫히지 않은 Step\(step-001 proposed\)/);
+    // skill 만인 next_step 도 (G-003 A)
+    expectUnchanged(dataDir, 'propose-step', [dataDir, taskId, 'R-002', entry.file(decisionYaml({ next_step: { skill: 'example@1', params: {} } }))], 1, /닫히지 않은 Step\(step-001 proposed\)/);
   });
 });
 
@@ -85,6 +87,19 @@ describe('사람이 한 일의 입구 — define-step, request-revision, approve
     expect(r.status, r.all).toBe(0);
     expect(r.stdout).toMatch(/defined step-001 on T-0001 \(human_edit true\)/);
     expect(yaml('steps/step-001/step.yaml')).toMatchObject({ status: 'defined', goal: '고친 목표', created_from: 'D-001' });
+    expect(validateData(dataDir).status).toBe(0);
+  });
+
+  it('add-feedback 의 --artifact-ref 가 가장 새 버전이 아니면 exit 1 — 아무것도 쓰지 않는다 (G-003 A)', async () => {
+    const { dataDir, taskId, sys, human } = await setupRound('defined');
+    const { refs } = await workerRound(sys, taskId);
+    await recordGate(sys, { taskId, stepId: 'step-001', reviewerRunId: await submitReviewer(sys, taskId), artifactRefs: refs, output: reviewerOutput('pass') });
+    await requestRevision(human, { taskId, stepId: 'step-001', artifactRef: refs[0]!, text: 't' });
+    const { refs: v2 } = await workerRound(sys, taskId, SHA_C);
+    const args = (ref: string) => [dataDir, taskId, '--step', 'step-001', '--kind', 'question', '--channel', 'review', '--artifact-ref', ref, '--text', '왜?', '--actor', 'human:t'];
+    expectUnchanged(dataDir, 'add-feedback', args(refs[0]!), 1, /plan@v1 는 plan 의 가장 새 버전이 아니다 \(가장 새 것은 v2\)/);
+    const r = entry.run('add-feedback', args(v2[0]!));
+    expect(r.status, r.all).toBe(0);
     expect(validateData(dataDir).status).toBe(0);
   });
 });
