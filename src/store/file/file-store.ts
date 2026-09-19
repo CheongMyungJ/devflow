@@ -178,9 +178,37 @@ interface PendingFile {
 
 type PlannedFile = PendingFile & { content: string | Buffer };
 
+/** 대소문자를 접은 위치 → 그 위치의 실제 철자 → 그 철자를 쓰는 것(디스크는 파일 위치, 한 Change 안은 subject). */
+type Spellings = Map<string, Map<string, string>>;
+
+/** 위치와 그 위의 디렉터리들. 'steps/step-001/artifacts/plan/v1.meta.yaml' → 'steps', …, 'steps/step-001/artifacts/plan', 그 파일. */
+function prefixesOf(rel: string): string[] {
+  const parts = rel.split('/');
+  return parts.map((_, i) => parts.slice(0, i + 1).join('/'));
+}
+
+function addSpellings(map: Spellings, rel: string, who: string): void {
+  for (const prefix of prefixesOf(rel)) {
+    const folded = prefix.toLowerCase();
+    const spellings = map.get(folded) ?? new Map<string, string>();
+    if (!spellings.has(prefix)) spellings.set(prefix, who);
+    map.set(folded, spellings);
+  }
+}
+
+/** rel 이나 그 위의 디렉터리와 대소문자만 다른 철자가 map 에 있으면 그것을 쓰는 것. */
+function caseTwinOf(map: Spellings, rel: string): string | undefined {
+  for (const prefix of prefixesOf(rel)) {
+    for (const [spelling, who] of map.get(prefix.toLowerCase()) ?? []) if (spelling !== prefix) return who;
+  }
+  return undefined;
+}
+
 /**
  * 한 commit 의 쓰기를 모으며 확인한다 (store.md 3.1 의 쓰기 때의 확인, 3.2, 3.3).
  * 한 Change 안에서 같은 것을 두 번 쓰면 InvalidChangeError, 디스크(lock 을 쥔 뒤의 목록)와 부딪치면 AlreadyExistsError.
+ * 계획한 파일과 그 위의 디렉터리는 대소문자를 무시하고도 대 본다: 대소문자만 다른 위치(R-001.Notes 와 R-001.notes 의 파일,
+ * Artifact 이름 plan 과 Plan 의 디렉터리)는 대소문자를 가리지 않는 파일 시스템에서 한 파일이 되므로, 파일 시스템과 상관없이 늘 거부한다.
  */
 class WritePlan {
   private readonly present: Set<string>;
@@ -188,6 +216,8 @@ class WritePlan {
   private readonly records = new Map<string, string[]>();
   private readonly slots = new Set<string>();
   private readonly keys = new Set<string>();
+  private readonly presentSpellings: Spellings = new Map();
+  private readonly plannedSpellings: Spellings = new Map();
 
   constructor(
     readonly taskId: string,
@@ -195,6 +225,7 @@ class WritePlan {
   ) {
     this.present = new Set(existing);
     for (const rel of existing) {
+      addSpellings(this.presentSpellings, rel, rel);
       const loc = locOfRel(taskId, rel);
       if (!loc || loc.kind === 'blob' || !('id' in loc)) continue;
       const key = `${loc.kind} ${loc.id}`;
@@ -217,6 +248,7 @@ class WritePlan {
     if ('id' in loc && (this.records.get(`${loc.kind} ${loc.id}`) ?? []).some((other) => other !== rel)) {
       throw new AlreadyExistsError(`${subject} (${loc.id} is already used at another place in ${this.taskId})`);
     }
+    this.claim(rel, subject);
     return { tmp, final: rel, content };
   }
 
@@ -232,7 +264,26 @@ class WritePlan {
   blob(blob: BlobWrite, key: string, tmp: string): PlannedFile {
     const rel = blobRelPath(parseBlobRef(key)!);
     if (this.present.has(rel)) throw new AlreadyExistsError(`blob ${key}`);
+    this.claim(rel, `blob ${key}`);
     return { tmp, final: rel, content: typeof blob.content === 'string' ? blob.content : Buffer.from(blob.content) };
+  }
+
+  /** 대소문자만 다른 위치: 디스크에 있으면 AlreadyExistsError, 이 Change 안에서 먼저 계획했으면 InvalidChangeError (store.md 3.2). */
+  private claim(rel: string, subject: string): void {
+    const onDisk = caseTwinOf(this.presentSpellings, rel);
+    if (onDisk !== undefined) throw new AlreadyExistsError(`${subject} (differs only in letter case from ${this.describe(onDisk)})`);
+    const inChange = caseTwinOf(this.plannedSpellings, rel);
+    if (inChange !== undefined) throw new InvalidChangeError(`${subject}: differs only in letter case from ${inChange} in the same change`);
+    addSpellings(this.plannedSpellings, rel, subject);
+  }
+
+  /** 디스크의 파일을 저장 위치가 아닌 식별자로. */
+  private describe(rel: string): string {
+    const loc = locOfRel(this.taskId, rel);
+    if (loc === undefined) return `a file of ${this.taskId} that the store does not read`;
+    if (loc.kind !== 'blob') return subjectOf(this.taskId, loc);
+    const { taskId, stepId, ownerId, name } = loc.ref;
+    return `blob blob:${taskId}/${stepId !== undefined ? `${stepId}/` : ''}${ownerId}.${name}`;
   }
 }
 
@@ -579,6 +630,7 @@ export class FileStore implements Store {
         throw new SchemaViolationError('read', subjectOf(taskId, loc), [{ path: '', message: `the same id is stored at more than one place: ${levels}` }]);
       }
       if (places.length === 0) return undefined;
+      if (loc.kind === 'artifact' && !(await this.storedAsSpelled(taskId, relOfLoc(loc), overlay))) return undefined;
       try {
         return await this.readEntity(taskId, places[0]!, overlay);
       } catch (error) {
@@ -642,6 +694,7 @@ export class FileStore implements Store {
     if (!parsed) return undefined; // 문법에 맞지 않는 key 의 blob 은 없다
     const rel = blobRelPath(parsed);
     const found = await this.readConsistent(parsed.taskId, async (overlay) => {
+      if (!(await this.storedAsSpelled(parsed.taskId, rel, overlay))) return undefined;
       try {
         return await this.readRel(parsed.taskId, rel, overlay);
       } catch (error) {
@@ -737,6 +790,29 @@ export class FileStore implements Store {
       for (const name of await this.entries(join(dir, stepRel, 'artifacts'))) await addAll(`${stepRel}/artifacts/${name}`);
     }
     return [...found];
+  }
+
+  /**
+   * 위치가 그 철자 그대로 있는가. 대소문자를 가리지 않는 파일 시스템에서는 'Plan/v1.meta.yaml' 을 열면 'plan/v1.meta.yaml' 이 열리므로,
+   * 대소문자만 다른 key 로 다른 기록을 돌려주지 않도록 getBlob 과 get('artifact') 가 읽기 전에 부른다 (store.md 3.2, 3.3).
+   * 디렉터리의 항목과 한 글자씩 대 본다. Task 디렉터리 아래의 모든 조각을 본다.
+   */
+  private async storedAsSpelled(taskId: string, rel: string, overlay: Map<string, string> | undefined): Promise<boolean> {
+    if (overlay?.has(rel)) return true; // 뒷정리가 남은 commit 의 결과. overlay 의 위치는 Store 가 쓴 철자다
+    const parts = rel.split('/');
+    let dir = this.taskDir(taskId);
+    for (const part of parts) {
+      let names: string[];
+      try {
+        names = await this.ops.readdir(dir);
+      } catch (error) {
+        if (codeOf(error) === 'ENOENT' || codeOf(error) === 'ENOTDIR') return false;
+        throw error;
+      }
+      if (!names.includes(part)) return false;
+      dir = join(dir, part);
+    }
+    return true;
   }
 
   /** 디렉터리의 항목. 없거나 디렉터리가 아니면 빈 배열. */

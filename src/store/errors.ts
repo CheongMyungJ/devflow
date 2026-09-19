@@ -71,7 +71,8 @@ export class CommitOutcomeUnknownError extends StoreError {
 }
 
 /**
- * 불변인 기록(decision, gate_result, artifact, blob)이 이미 있거나, Task 안의 ID 가 다른 자리에서 이미 쓰였다.
+ * 불변인 기록(decision, gate_result, artifact, blob)이 이미 있거나, Task 안의 ID 가 다른 자리에서 이미 쓰였거나,
+ * 대소문자만 다른 key·이름의 기록이 이미 있다(파일 시스템에 따라 한 파일이 된다 — docs/design/store.md 3.2).
  * 아무것도 기록되지 않았다. 결과를 모른 채 다시 보낸 쓰기라면 "이미 있다" 가 곧 원하던 상태일 수 있다 — get 으로 확인한다.
  */
 export class AlreadyExistsError extends StoreError {

@@ -101,7 +101,8 @@ export interface CommitContext {
 
 /**
  * Change 를 직접 주거나, 배타적 접근을 얻은 뒤의 상태를 보고 만드는 함수를 준다.
- * 함수는 동기이고 부작용이 없어야 한다. 구현체가 재시도하며 여러 번 호출할 수 있다.
+ * 함수는 동기이고 부작용이 없어야 한다. 구현체가 재시도하며 여러 번 호출할 수 있다 — 그렇게 재시도하는 구현은 commit 식별자를
+ * 재시도 루프 밖에서(commit 호출마다 한 번) 만든다. 그래야 한 호출의 이벤트가 몇 번을 다시 해도 같은 commit_id 를 받는다(store.md 3.5).
  */
 export type ChangeInput = Change | ((ctx: CommitContext) => Change);
 
