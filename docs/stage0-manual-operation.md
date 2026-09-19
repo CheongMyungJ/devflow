@@ -22,6 +22,8 @@
 ### 대화 세션(Orchestrator)을 도중에 바꿀 때 (T-0004 — step-002 의 in_review 에서 한 번 성립했다)
 
 떠나는 세션이 Ledger 에 **"세션 인계" 절**을 쓰고 commit 한다: 지금 기다리는 것(사람의 무엇을, 앞 세션의 권고는 무엇이었나) / 그다음에 할 일(어느 역할을 어떤 모델로, 패킷에 넣을 것) / done 때 사람에게 보일 것 / merge 뒤의 순서 / 사람이 "반드시" 라고 한 것 / 회고에 남길 관찰. 새 세션은 위 1~5 로 복원한 뒤 **사람에게 상태와 기다리던 요청을 다시 보여 주고 확인받는다 — 앞 세션에서 사람이 한 말은 기록된 승인이 아니다.** 이어받은 사실과 부족했던 것을 그 절에 덧붙인다. 역할 세션이 실행 중일 때는 바꾸지 않는 편이 낫다(결과를 잃는다 — 5번).
+- (T-0005 에서 더함) 인계 절에 **데이터 repo 의 push 상태**(origin 보다 몇 commit 앞서 있는가)를 적는다.
+- **새 세션이 이어받은 뒤 앞 세션은 기록을 쓰지 않는다.** T-0005 에서 인계 뒤에도 앞 세션이 사람과의 대화로 commit 을 하나 더 했다 — 새 세션이 역할 세션을 띄우기 직전에 데이터 repo 의 HEAD 를 다시 보아 잡았다. 새 세션은 상태를 보여 줄 때 "앞 세션에서는 더 쓰지 않는다" 를 사람에게 확인받고, 역할 세션을 띄우기 직전에 HEAD 가 복원 때와 같은지 본다.
 
 ### 역할 세션이 도중에 끊겼을 때 (T-0003 의 R-012 — 사용량 한도)
 
@@ -50,11 +52,14 @@ Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed
       fail → 사람을 거치지 않고 재작업 (revising → checking)
       pass → in_review, 사람에게 검토 요청
   → 사람: 승인 / 수정 요청 / 질문                   feedback/F-NNN.yaml
-  → 승인되면 Artifact 의 approved: true, step closed, ledger.md 에 요약 추가
+  → 승인되면 승인 Feedback·이벤트, step closed, ledger.md 에 요약 추가 (Artifact meta 는 고치지 않는다 — T-0005 부터)
   → Planner 가 다음 행동 결정 (next_step / ask_human / done …)
 ```
 
-- **승인을 기록하는 순서**(T-0004 에서 새 대화 세션이 앞 Step 의 기록을 보고 찾아야 했다): 산출물마다 승인 Feedback 하나(`steps/step-NNN/feedback/F-NNN.yaml`, `kind: approval`, `target.artifact_ref` 에 버전까지, text 에 사람의 말과 받아들인 권고·한계) → meta 의 `approved: true` → `step.yaml` 의 `status: closed` → 이벤트: `feedback.added`(산출물마다) → `artifact.approved`(산출물마다, `data.gate`) → `step.status_changed` in_review→approved(`data.official_gate`) → approved→closed → `ledger.updated`.
+- **`step.yaml` 의 `status` 를 전이마다 이벤트와 함께 고친다**(proposed → defined → running → checking → in_review → closed. 재작업이면 revising). T-0005 의 step-003 에서 새 대화 세션이 defined 에 둔 채 진행했다 — 이벤트만으로는 이 절차가 드러나지 않는다.
+- **승인하되 다음 Step 에서 반드시 고칠 것**이 있으면(T-0005 의 F-005 — 재작업 대신 사람이 고른 길) 승인 Feedback 의 text 에 "다음 Step 에서 반드시 고칠 것" 과 그 범위를 적고, Planner 패킷에 그 Feedback 을 넣고, 다음 Step 의 Worker·Reviewer 패킷에도 경로를 넣는다(아래 "사람의 Feedback 이 완료 조건을 바꾸면" 과 같다). 스키마에 자리가 없다(backlog).
+- **승인을 기록하는 순서**(T-0004 에서 새 대화 세션이 앞 Step 의 기록을 보고 찾아야 했다): 산출물마다 승인 Feedback 하나(`steps/step-NNN/feedback/F-NNN.yaml`, `kind: approval`, `target.artifact_ref` 에 버전까지, text 에 사람의 말과 받아들인 권고·한계) → `step.yaml` 의 `status: closed` → 이벤트: `feedback.added`(산출물마다) → `artifact.approved`(산출물마다, `data.gate`) → `step.status_changed` in_review→approved(`data.official_gate`) → approved→closed → `ledger.updated`. **Artifact meta 는 쓴 뒤 고치지 않는다**(T-0005 의 F-001 (A), ADR-0015 — 승인은 승인 Feedback 과 `artifact.approved` 이벤트로만 판단한다. artifact 스키마의 `approved` 는 옛 기록을 읽기 위한 필드이고 새 meta 에는 쓰지 않는다. T-0005 까지의 기록은 옛 절차대로 `approved: true` 로 고쳤다).
+- **Artifact meta 를 쓰는 법**(T-0005 부터 `validate-data` 가 검사한다 — F9): 문서는 `stored_in: store` + `content_key: blob:T-NNNN/step-NNN/R-NNN.<label>`(Store 의 key 문법 — store.md 3.3), 코드는 `type: code_change` + `code`(repo, branch, base_sha, head_sha), 대상 repo 안의 문서라면 `stored_in: repo` + `code` + `paths`(repo 상대 경로). `approved` 는 쓰지 않는다.
 - **Ledger 의 Step 요약에는 세 가지를 적는다**: 무엇이 승인되었나(산출물 참조, 내용, 검증, 경과) / **뒤의 Step 이 알아야 할 것** / **상세가 있는 곳**(어느 Artifact 의 어느 절, 어느 Gate). 요약만 있고 상세의 위치가 없으면 다음 Planner 가 헤맨다(T-0003 의 R-006 → 고친 뒤 R-009, R-015 는 "다음 행동은 Ledger 만으로 정해졌다"). "진행 중" 절에 옛 줄을 남기지 않는다. 뒤로 넘기는 지적은 나올 때마다 Ledger 의 "후속 Task 후보" 에도 적는다(T-0003 에서는 끝까지 비어 있었다).
 - **누가 수행했는지 사실대로 적는다.** Ledger 의 운영 메모에 수행 주체를 적는다. 대화 세션이 역할을 겸한 일이 있으면(T-0001 이 그랬다) 그렇게 쓴다.
 - **Reviewer 에게 주는 것**: `roles/reviewer.md`, Task·Step 정의, 검토 대상 commit 과 diff 명령, 이전 Gate, Worker 의 작업 노트(특히 "확인하지 못한 것" — 지금까지 실제 결함은 모두 여기서 나왔다), deterministic 결과. 확인하는 방법("실행해서 확인", "'확인하지 못한 것' 을 먼저 공격", 임시 디렉터리 하나, 고쳐 보는 확인은 복사본에서)과 출력의 형식은 T-0003 부터 `roles/reviewer.md` 에 있다 — **패킷에 다시 쓰지 않는다. 패킷이 지침과 다른 형식을 말하면 출력이 거부된다**(아래 "Reviewer 출력의 형식").
@@ -77,7 +82,9 @@ Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed
 - (Planner) 직전 Step 의 공식 Gate, Feedback, 이전 Decision, Skill 카탈로그(지금은 비어 있다), 남은 한도
 - (재작업 Worker) 이전 버전의 commit 과 meta, 이전 실행의 작업 노트, Feedback, Gate
 - (Reviewer) 검증 대상 Artifact 의 commit 과 diff 명령, 작업 노트, 시스템의 deterministic 결과, 이전 Gate, 재작업이면 Feedback
+- (Worker·Reviewer) 사람의 Feedback 가운데 이 Step 의 완료 조건을 바꾸거나 더한 것의 경로(Step 의 inputs 로 가리킬 수 없다)
 - verify 에 서술로 적힌 검사가 있으면 그 실제 명령
+- (Worker·Reviewer) 실행 중 사람이 준 지시: 없으면 "없음"
 
 - artifact 참조에서 본문을 찾는 법(meta 는 steps/<step>/artifacts/<name>/vN.meta.yaml, 문서 본문은 meta 의 content_key 가 가리키는 runs/ 의 파일, 코드는 meta 의 code)
 
@@ -94,6 +101,10 @@ Planner 가 Step 제안(decisions/D-NNN.yaml, steps/step-NNN/step.yaml: proposed
 - 출력 파일(과 Worker 의 Workspace, 자신이 OS 의 임시 위치에 만들고 스스로 지우는 디렉터리 하나) 외에는 아무것도 만들거나 고치지 않는다. 스스로 승인하지 않는다. 다음 Step 을 정하지 않는다.
 - (Task 가 시스템 repo 의 스크립트를 고치는 경우) task branch 의 스크립트를 실제 데이터 repo 에 대고 실행하지 않는다.
 ```
+
+- **패킷의 원문을 Run 옆에 `R-NNN.packet.md` 로 남긴다**(T-0005 의 R-007 부터 — Task 수준 Run 은 `T-NNNN/runs/`, Step 수준은 `steps/step-NNN/runs/`). 대화 세션이 바뀌면 앞 세션이 실제로 무엇을 주었는지 알 길이 없어 "같은 틀" 을 다시 짜야 했다. `validate-data` 와 Store 는 이 파일을 blob(`R-NNN.packet`)으로 읽고 Run 으로 세지 않는다.
+- Task 의 산출물을 **실행해 보는** 역할 세션(Reviewer, done 의 Planner)에게는 빌드물이 어디 있는지 말해 주면 헤매지 않는다 — Workspace 의 `node_modules/.cache/devflow-test-build`(npm test 의 global setup 이 만든다, git 이 무시한다)는 HEAD 의 빌드다. OS 임시 위치에 빌드하면 의존성과 `schemas/` 를 찾지 못하고, node_modules 를 링크로 잇는 것은 금지다(T-0005 의 R-008·R-012 packet_gaps).
+- 대소문자를 가리는 파일 시스템에서 확인해야 하면(Windows 는 기본이 가리지 않는다) OS 임시 위치의 빈 디렉터리에 `fsutil file setCaseSensitiveInfo <dir> enable` 을 켠다 — 관리자 권한 없이 된다(T-0005 의 R-011·R-012).
 
 역할 세션이 따르는 지침과 고치는 대상이 같은 파일일 때(역할 프롬프트를 고치는 Task)는 "당신이 따를 지침은 기준 SHA 의 것이고 고치는(검증하는) 대상은 Workspace 안의 것이다" 를 패킷에 적는다.
 
@@ -112,7 +123,7 @@ T-0001~T-0003 의 Gate 는 옛 형식(문장 comments)으로 남아 있고 스�
 - **거부되면**: 출력 파일을 손으로 고치지 않는다. 같은 Reviewer 세션에게 오류 메시지를 주어 출력을 다시 쓰게 하거나(이어갈 수 있으면), 안 되면 새 Reviewer Run 으로 다시 실행한다. 다시 받은 횟수를 Run 의 `output_attempts` 에 적는다.
 - **Run 을 닫을 때(`status: completed`, `ended_at`) `record-gate` 가 덧붙인 `packet_gaps` 를 지우지 않는다.** 순서는 record-gate → Run 닫기. Run 파일은 줄 단위로 고치고 통째로 다시 쓰지 않는다.
 - Worker 와 Planner 의 `packet_gaps` 를 Run 으로 옮기는 도구는 아직 없다 — Orchestrator 가 Run 기록에 `packet_gaps:` 로 손으로 옮긴다(Worker 의 것은 작업 노트의 packet_gaps 절에서, Planner 의 것은 Decision 의 `packet_gaps` 에서).
-- `--annotations` 의 입력 파일(시스템 기록, Worker 의 실측을 Gate 에 덧붙일 때)은 `steps/step-NNN/gates/G-NNN.annotations.json` 으로 둔다. `.yaml` 로 두면 `validate-data` 가 Gate 로 읽으려다 실패한다.
+- `--annotations` 의 입력 파일(시스템 기록, Worker 의 실측을 Gate 에 덧붙일 때)은 `steps/step-NNN/gates/G-NNN.annotations.json` 으로 둔다. (T-0005 부터 `validate-data` 는 gates/ 의 `G-NNN.yaml` 만 Gate 로 읽으므로 `.yaml` 이어도 실패하지 않는다. Store 는 둘 다 Gate 의 blob 으로 읽는다. 지금까지의 기록과 같게 `.json` 을 쓴다.)
 - gate id 는 `G-NNN` 의 모양으로 정확히 준다. 스크립트가 아직 모양을 검사하지 않아, 파일 이름이 될 수 없는 id 를 주면 Run 만 고쳐진 채 죽는다(같은 명령을 올바른 id 로 다시 돌리면 끝난다 — backlog).
 - Run 기록에 수행 주체를 적는다: `performer: isolated_session`(Context 패킷만 받은 독립 세션) | `conversation_session`(대화 세션이 역할을 겸함).
 
@@ -130,14 +141,16 @@ Run 기록은 세션을 띄우기 **전에** `status: submitted` 로 쓰고(`run
   npm run validate-data -- C:\git\devflow-data
   ```
 - **검증이 통과한 뒤에만 commit 한다.** PowerShell 에서는 `$ErrorActionPreference='Stop'` 을 걸고, 단계마다 `$LASTEXITCODE` 를 확인한다. 앞 단계가 실패했는데 commit·push 가 진행된 사고가 두 번 있었다.
-- 운영에 쓰는 스크립트와 자료는 세션의 임시 폴더가 아니라 이 repo 의 `scripts/` 에 둔다. 임시 폴더는 다른 세션에서 보이지 않고 사라질 수 있다. 지금 있는 것: `append-events`, `validate-data`, `propose-step`, `record-gate`.
+- 운영에 쓰는 스크립트와 자료는 세션의 임시 폴더가 아니라 이 repo 의 `scripts/` 에 둔다. 임시 폴더는 다른 세션에서 보이지 않고 사라질 수 있다. 지금 있는 것: `append-events`, `validate-data`, `propose-step`, `record-gate`. 검증용으로 `check-store-read`(T-0005 — 데이터 repo 의 checkout 을 Store 로 열어 모든 kind 를 읽어 본다: `npm run check-store-read -- <checkout>`. tsc 빌드를 `node_modules/.cache` 에 만들고 지운다).
+- **`validate-data` 가 검사하는 것**(T-0005 부터): Task·Step·Decision·Feedback·Gate·Run·이벤트에 더해 Artifact meta(`steps/<step>/artifacts/<name>/v<N>.meta.yaml`). 이름 규칙은 Store 의 list 와 같다 — decisions/ 는 `D-NNN.yaml`, feedback/ 는 `F-NNN.yaml`, gates/ 는 `G-NNN.yaml`, runs/ 는 `R-NNN.yaml` 만 그 kind 로 읽고 나머지 파일(`.work-notes.md`, `.output.*`, `.packet.md`, `.deterministic.md` 등)은 세지 않는다. 스키마는 `src/schema/registry.mjs` 하나로 읽는다(ADR-0016).
+- **Store(T-0005)가 생겼지만 0단계의 기록은 아직 손으로 쓴다** — 운영 스크립트를 Store 위로 옮기는 것은 T-0005 의 범위 밖이었다(backlog). Store 가 쓰는 배치는 지금 손으로 쓰는 배치와 같다(store.md 3.1·3.3).
 - **Task 가 진행되는 동안에는 이 repo 의 main 에 운영 스크립트를 commit 하지 않는다**(역할 세션이 보는 clone 의 HEAD 가 움직여 검증의 기준 SHA 가 흔들린다 — T-0002). 대상 repo 가 이 repo 인 Task 라면 더욱 그렇다. 꼭 필요하면 Ledger 에 적는다.
 - commit 작성자는 두 repo 의 로컬 git 설정에 있다. 메시지 끝에 `Co-Authored-By` 줄을 붙인다. `devflow-data` 는 private repo 다.
 - 상태 기록에 로컬 경로를 쓰지 않는다. 문서는 `artifact://…@vN`, 코드는 repo + branch + SHA.
 
 ## Task 를 끝낼 때
 
-Planner 의 `done` 결정(AC 별 근거 — Planner 에게 AC 의 검사 명령을 주어 최종 commit 에서 직접 다시 확인하게 한다. '데이터 repo 의 모든 Task' 같은 AC 는 그때의 데이터 repo HEAD 로 읽기 전용 checkout 을 새로 만들어 준다. 패킷에 '새 세션을 띄우지 않는다' 를 넣는다) → 사람의 최종 확인(AC 만이 아니라 **Intake 때 사람이 원한다고 한 것과 대조**해 보여 준다 — Task 의 `success_criteria` 원문(옛 양식이면 의도 확인 원문) 한 줄마다 결과와 남는 한계를 나란히. Planner 의 done 은 AC 만 본다) → task branch 를 main 에 merge(또는 PR) → merge 뒤 main 에서 typecheck·test·validate-data → **Task 가 이 repo 의 운영 도구·역할 지침·스키마를 바꿨으면 merge 직후에 이 문서를 고친다**(Task 밖의 운영 commit. 안 고치면 다음 세션이 옛 틀로 패킷을 쓴다) → worktree 정리 → `docs/retro/T-NNNN.md` 작성(템플릿은 `retro/README.md`) → `roadmap.md` 의 체크리스트 갱신 → **Ledger 의 "후속 Task 후보" 와 회고의 개선 조치를 `devflow-data/backlog.md` 로 옮긴다.** Ledger 는 Task 와 함께 닫히므로 거기에만 적힌 것은 잊힌다.
+Planner 의 `done` 결정(AC 별 근거 — Planner 에게 AC 의 검사 명령을 주어 최종 commit 에서 직접 다시 확인하게 한다. '데이터 repo 의 모든 Task' 같은 AC 는 그때의 데이터 repo HEAD 로 읽기 전용 checkout 을 새로 만들어 준다. 패킷에 '새 세션을 띄우지 않는다' 를 넣는다) → 사람의 최종 확인(AC 만이 아니라 **Intake 때 사람이 원한다고 한 것과 대조**해 보여 준다 — Task 의 `success_criteria` 원문(옛 양식이면 의도 확인 원문) 한 줄마다 결과와 남는 한계를 나란히. Planner 의 done 은 AC 만 본다) → task branch 를 main 에 merge(또는 PR) → merge 뒤 main 에서 typecheck·test·validate-data → `task.yaml` 의 `status: done` 과 `task.done` 이벤트(`data.merge` 에 merge SHA, `data.post_merge_check`, 이 이벤트부터 `system_sha` 는 merge 뒤의 main) → **Task 가 이 repo 의 운영 도구·역할 지침·스키마를 바꿨으면 merge 직후에 이 문서를 고친다**(Task 밖의 운영 commit. 안 고치면 다음 세션이 옛 틀로 패킷을 쓴다) → worktree 정리 → `docs/retro/T-NNNN.md` 작성(템플릿은 `retro/README.md`) → `roadmap.md` 의 체크리스트 갱신 → **Ledger 의 "후속 Task 후보" 와 회고의 개선 조치를 `devflow-data/backlog.md` 로 옮긴다.** Ledger 는 Task 와 함께 닫히므로 거기에만 적힌 것은 잊힌다.
 
 ## 다음에 무엇을 할지
 

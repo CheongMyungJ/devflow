@@ -6,7 +6,7 @@
 //
 // 이 파일이 JavaScript(.mjs)인 이유: 운영 스크립트(scripts/*.mjs)는 빌드 없이 node 로 실행되므로 TypeScript 를 import
 // 할 수 없다. TypeScript 쪽은 registry.d.mts 의 선언으로 이 파일을 쓴다. tsc 는 이 파일을 출력 디렉터리로 옮기지 않으므로
-// src/ 를 tsc 로 빌드해 실행하는 곳(tests/global-setup.ts)은 이 파일을 함께 옮긴다.
+// src/ 를 tsc 로 빌드해 실행하는 곳(tests/global-setup.ts, scripts/check-store-read.mjs)은 이 파일을 함께 옮긴다.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
