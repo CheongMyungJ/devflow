@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/worker-output.schema.json",
+  "title": "WorkerOutput",
+  "description": "Worker 세션의 구조화된 출력 파일. 산출물 자체(문서 Artifact, task branch 의 commit)는 여기에 담지 않는다 — 이 파일은 산출물에 딸린 보고다. 시스템이 이 스키마로 검증한 뒤 summary 는 Ledger 에, packet_gaps 는 그 Run 에 반영한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "packet_gaps"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1, "description": "Ledger 에 들어갈 3~5줄 요약 — 무엇을 했고, 무엇을 알아냈고, 남은 불확실성은 무엇인가." },
+    "work_notes": { "type": "string", "description": "작업 노트 본문(markdown). 작업 노트를 Step 의 outputs 에 선언된 문서 산출물로 따로 냈으면 생략한다." },
+    "live_instructions_summary": { "type": "string", "description": "실행 중 사람에게 받은 지시의 요약. Task 요구사항으로 올려야 할 것으로 보이는 항목을 표시한다. 없으면 생략한다." },
+    "packet_gaps": {
+      "description": "받은 Context 패킷에서 부족했거나 모호했던 점. 필수다 — 부족한 것이 없었으면 빈 배열을 쓴다. 시스템이 그 Run 의 packet_gaps 로 옮긴다.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "description": "부족했거나 모호했던 점 하나. 무엇이 없었거나 모호했고 그래서 어떻게 했는지를 문장으로 쓴다. 로컬 경로를 쓰지 않는다." }
+    }
+  }
+}

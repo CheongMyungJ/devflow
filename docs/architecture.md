@@ -53,7 +53,7 @@ Task 1 ─── N Step 1 ─── N Attempt ─── Artifact(version)
 - **Step** — goal / scope / inputs / outputs / done_when / verify / approval
 - **Artifact** — 문서는 `artifact://T/step/name@vN`, 코드는 `repo+branch+SHA`. 승인된 버전이 공식 기록
 - **Feedback** — 수정 요청 / 질문 / 승인 / 요구사항 추가. 검토 시 또는 실행 중(live) 발생
-- **GateResult** — pass/fail, 항목별 결과, 근거
+- **GateResult** — pass/fail, 항목별 결과, 근거, Reviewer 의 지적(severity · class A/B/C · text). Reviewer 가 아닌 출처(시스템, Worker 의 실측)의 정보는 `annotations` 에 따로 담는다
 - **Decision** — `next_step | rework | ask_human | done | abort` + 근거
 - **Task Ledger** — 승인된 Step, 산출물 요약, 주요 결정의 누적 요약. Planner 는 전체 이력이 아닌 Ledger 를 입력으로 받는다
 
@@ -126,8 +126,9 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 구현: TypeScript + Node.js LTS. 인터페이스는 `src/runner/types.ts`.
 
 - 어댑터는 각 도구의 headless CLI 를 subprocess 로 실행하고, 능력(`supportsLiveMessage`, `supportsResume`)을 선언한다. CLI 옵션 지식은 어댑터 밖으로 새지 않는다.
-- 백엔드·모델은 역할별로 설정한다(Worker 와 Reviewer 를 다른 모델로 돌릴 수 있다). 실행마다 Run 기록(`schemas/run.schema.json`)에 backend, model, 버전, 세션 경로를 남긴다.
-- **출력은 파일로 받는다.** 역할 프롬프트가 출력 디렉터리에 `<name>.json` 을 쓰도록 지시하고, 시스템이 스키마로 검증한다. 실패 시 오류를 붙여 재시도한다.
+- 백엔드·모델은 역할별로 설정한다(Worker 와 Reviewer 를 다른 모델로 돌릴 수 있다). 실행마다 Run 기록(`schemas/run.schema.json`)에 backend, model, 버전, 세션 경로, 수행 주체(`performer` — Context 패킷만 받은 독립 세션인가, 대화 세션이 역할을 겸했는가)를 남긴다.
+- **출력은 파일로 받는다.** 역할 프롬프트가 출력 디렉터리에 `<name>.json` 을 쓰도록 지시하고, 시스템이 스키마로 검증한다. 실패 시 오류를 붙여 재시도한다. 출력 스키마는 Planner `decision`, Reviewer `reviewer-output`, Worker `worker-output` 이고 현재 형식만 받는다. 기록 스키마(GateResult, Run, Decision)는 옛 형식의 기록도 읽을 수 있게 허용을 스키마 안에 둔다 (ADR-0012).
+- Context 패킷을 받는 역할(Planner, Worker, Reviewer — Intake 는 아니다)은 출력의 `packet_gaps` 에 "받은 Context 패킷에서 부족했거나 모호했던 점" 을 적는다(없으면 빈 배열). 시스템이 그 Run 의 `packet_gaps` 로 옮긴다.
 - **권한은 `access: read | write`.** 읽기 전용 실행 뒤 worktree 가 변경되었으면 실행을 무효 처리한다.
 - **세션 선택**: 같은 Step 안에서 같은 역할이 이어가는 경우(질문, 수정 요청, 개입 후 재개)는 resume 우선. 다음 Step, Reviewer, Planner 는 새 세션. resume 실패 시 Context 패킷으로 새 세션을 띄운다.
 - 실행 중 메시지를 지원하지 않는 백엔드는 "중단 → 메시지 포함해 resume" 으로 대체한다. 메시지는 어느 경우든 먼저 이벤트로 기록된다.
@@ -140,6 +141,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - 상태는 Task 단위로 분리되어 있고 `advance(task_id)` 는 Task 별로 멱등이다. 여러 Task 를 동시에 진행할 수 있다.
 - **Task 하나 = repo 하나 = worktree 하나.** Worker 와 Gate 는 그 Task 의 worktree 안에서만 실행한다. worktree 경로는 Workspace 관리자가 실행 시점에 풀어 주며 기록하지 않는다. 여러 repo 에 걸친 작업은 Task 를 나눠 발행한다.
 - 프로젝트 이름 → remote URL·기본 branch 는 `devflow-data/projects.yaml` 에, 로컬 clone 위치는 머신별 설정에 둔다.
+- Step 의 `inputs` 는 `code://<project>@<sha>` 로 대상 repo 가 아닌 등록된 프로젝트도 가리킬 수 있다. 그 참조는 읽기 전용이고, 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이다. 참조 문법은 `schemas/step.schema.json` 이 강제한다.
 - 대상 repo 의 `.devflow.yaml`(`schemas/project-config.schema.json`)이 검증 명령을 정의한다. `exclusive: true` 인 프로젝트는 Gate 를 직렬로 실행한다.
 - Store 파일 구현체는 같은 Task 에 대한 commit 을 Task 별 lock 으로 직렬화한다. Task ID 는 lock 없이 `mkdir` 의 원자성으로 발급한다(ADR-0011). `devflow-data` 의 git 자동 commit 은 직렬화해야 한다(미구현).
 - 같은 repo 의 동시 수정은 막지 않는다. `advance` 가 base branch 이동을 감지해 Planner 에 알리고, Planner 가 "base 갱신 후 재검증" Step 을 만든다.

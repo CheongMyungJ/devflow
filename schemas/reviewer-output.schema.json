@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/reviewer-output.schema.json",
+  "title": "ReviewerOutput",
+  "description": "Quality Reviewer 세션의 출력 파일. 시스템이 이 스키마로 검증한 뒤 식별 필드(id, task_id, step_id, artifact_refs, reviewer_run_id, created_at)를 채워 GateResult 로 기록하고, packet_gaps 는 그 Run 으로 옮긴다. verdict, checks, done_when, comments 의 뜻과 모양은 gate-result.schema.json 과 같다. 다만 comments 는 구조화된 형식만 받는다(GateResult 가 읽기용으로 허용하는 옛 문장 형식은 여기서 거부된다). Reviewer 가 아닌 출처의 정보(GateResult 의 annotations)를 담는 자리는 없다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "checks", "done_when", "comments", "packet_gaps"],
+  "properties": {
+    "verdict": { "enum": ["pass", "fail"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name", "result"],
+        "properties": {
+          "kind": { "enum": ["deterministic", "semantic"] },
+          "name": { "type": "string", "description": "deterministic: 검사 이름. semantic: verify.semantic 의 질문." },
+          "result": { "enum": ["pass", "fail", "skipped"] },
+          "evidence": { "type": "string", "description": "로그 요약 또는 Reviewer 의 판단 근거." },
+          "log_key": { "type": "string", "description": "전체 로그의 Store 키." }
+        }
+      }
+    },
+    "done_when": {
+      "description": "완료 조건별 충족 여부 (Reviewer 판단).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["condition", "met"],
+        "properties": {
+          "condition": { "type": "string" },
+          "met": { "type": "boolean" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "comments": {
+      "description": "Reviewer 의 지적. 없으면 빈 배열. 항목의 정의는 gate-result.schema.json 의 $defs.finding 과 같다.",
+      "type": "array",
+      "items": {
+        "description": "Reviewer 의 지적 하나.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "class", "text"],
+        "properties": {
+          "severity": {
+            "description": "지적의 성격. defect: 산출물이 Step 의 목표·완료 조건·제약에 어긋난다. risk: 지금 어긋난 것은 아니지만 문제가 될 수 있다(미확인 케이스, 깨지기 쉬운 전제). note: 그 밖의 관찰·의견.",
+            "enum": ["defect", "risk", "note"]
+          },
+          "class": {
+            "description": "요구하는 처리. A: 승인 전에 수정해야 한다. B: 승인해도 되지만 후속(뒤의 Step 또는 다른 Task)에서 다뤄야 한다. C: 의견 — 조치를 요구하지 않는다. A 가 하나라도 있으면 verdict 는 fail 이어야 한다(이 규칙은 스키마가 아니라 Reviewer 의 역할 지침이 지킨다).",
+            "enum": ["A", "B", "C"]
+          },
+          "text": { "type": "string", "minLength": 1, "description": "지적의 내용. 산출물의 구체적 위치와 근거를 가리킨다. severity 와 class 를 문장 앞머리에 되풀이해 적지 않는다." }
+        }
+      }
+    },
+    "packet_gaps": {
+      "description": "받은 Context 패킷에서 부족했거나 모호했던 점. 필수다 — 부족한 것이 없었으면 빈 배열을 쓴다. 시스템이 그 Run 의 packet_gaps 로 옮긴다.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "description": "부족했거나 모호했던 점 하나. 무엇이 없었거나 모호했고 그래서 어떻게 했는지를 문장으로 쓴다. 로컬 경로를 쓰지 않는다." }
+    }
+  }
+}

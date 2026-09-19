@@ -1,0 +1,16 @@
+id: R-002
+task_id: T-9001
+step_id: step-001
+role: reviewer
+purpose: review
+access: read
+backend: claude-code
+backend_version: 2.1.276
+model: example-model
+session_path: new
+performer: isolated_session
+status: completed
+system_sha: 0123456789abcdef0123456789abcdef01234567
+submitted_at: "2026-01-01T00:10:00Z"
+output_attempts: 1
+ended_at: "2026-01-01T00:15:00Z"

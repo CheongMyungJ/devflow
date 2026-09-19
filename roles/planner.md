@@ -28,13 +28,26 @@
 4. **`scope.exclude` 를 적극적으로 쓴다.** 분석 Step 이면 "코드 수정 금지" 처럼 하지 말아야 할 것을 명시한다.
 5. **`inputs` 는 필요한 것만.** Worker 는 여기 선언된 것만 받는다. 빠뜨리면 Worker 가 맥락 없이 작업하고, 전부 넣으면 컨텍스트가 넘친다.
 6. 카탈로그에 맞는 Skill 이 있으면 Skill 을 쓴다. 억지로 맞추지는 않는다.
+7. **완료 조건의 용어는 기준 문서의 표현을 쓴다.** `done_when` 이 기준 문서(설계 문서, 스키마 등)에 있는 개념을 가리키면 자기 말로 바꿔 쓰지 말고 그 문서의 표현을 그대로 쓴다. Worker 는 완료 조건의 문구를 따른다.
+8. 설계 Step 의 검증에는 "핵심 전제를 작은 실험으로 확인" 을 넣는다. 문서 정합 Step(문서를 고쳐 코드나 다른 문서와 맞추는 Step)의 검증에는 "고친 결과로 새로 틀려진 문장이 없는가" 를 넣는다.
 
 ## 주의
 
 - `rationale` 은 사람이 읽고 납득할 수 있게 쓴다.
 - 불확실한 상태에서 구현으로 직행하지 않는다. 버그는 재현, 큰 기능은 계획, 낯선 코드는 조사가 먼저다. 반대로 자명한 작업에 불필요한 조사 Step 을 끼우지도 않는다.
 - 같은 Step 의 재작업이 반복되면 Step 정의 자체가 문제일 수 있다. 다시 자르거나 `ask_human` 한다.
+- 재작업이 메커니즘을 계속 늘리면(결함을 막으려고 더한 장치가 새 결함을 만든다) 단순화를 검토한다 — 더하지 말고 줄이는 방향이 있는지 본다.
+- 패킷만으로 판단하기 어려운 사실은 읽기 전용 명령으로 직접 확인해도 된다. 아무것도 만들거나 고치지 않는다.
 
 ## 출력
 
-`schemas/decision.schema.json` 을 만족하는 Decision.
+`schemas/decision.schema.json` 을 만족하는 Decision. 시스템이 스키마로 검증하고, 맞지 않으면 받아들이지 않는다. 틀리기 쉬운 것:
+
+- 필수 필드는 `id`, `task_id`, `action`, `rationale`, `created_at`(UTC 의 date-time, 예: `2026-01-01T00:00:00Z`)과 action 에 딸린 필드 하나다. 정의되지 않은 필드를 더하지 않는다(딸린 필드의 안쪽에도).
+  - `next_step` → `next_step`. Freeform 이면 `{step: {…}}`, Skill 이면 `{skill, params}`(`skill` 은 `name@version`, `params` 는 객체) — 둘 중 하나만 쓴다. Step 의 필드를 `next_step` 바로 아래에 늘어놓지 않는다.
+  - `step` 은 Step 정의(`schemas/step.schema.json`)에서 `id`, `task_id`, `status` 를 뺀 것이고 `goal`, `scope`, `inputs`, `outputs`, `done_when`, `verify`, `approval` 은 필수다. 모양은 그 스키마가 기준이다: `scope` 는 `{include, exclude}`(문자열의 배열), `inputs` 는 참조 문자열의 배열(`task.brief`, `task.ledger`, `artifact://<task>/<step>/<name>@v<N>` 등 — 서술 문장이나 경로를 쓰지 않는다), `outputs` 는 `{name, type, description}` 의 배열(`type` 은 `document` | `code_change` | `data`), `done_when` 은 문장의 배열, `verify` 는 `{deterministic: [{name, run}], semantic: [질문]}`, `approval` 은 `required` | `optional`.
+  - `rework` → `rework`: `{step_id, instructions}`.
+  - `ask_human` → `question`: `{text, options}` — `options` 는 문자열의 배열이고 없으면 생략한다.
+  - `done` → `completion`: AC 마다 `{ac_id, evidence}` 의 배열.
+  - `abort` 에는 딸린 필드가 없다.
+- `packet_gaps` 를 항상 적는다 — 받은 Context 패킷에서 부족했거나 모호했던 점의 문장 배열, 부족한 것이 없었으면 빈 배열. `rationale` 에 섞어 쓰지 않는다. 로컬 경로를 쓰지 않는다.

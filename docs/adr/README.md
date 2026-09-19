@@ -33,3 +33,4 @@
 | [0009](0009-typescript-node.md) | TypeScript + Node.js LTS |
 | [0010](0010-backend-neutral-runner.md) | 백엔드 중립 Runner, resume 은 최적화로만 |
 | [0011](0011-file-store-decisions.md) | Store 파일 구현체의 결정 (ADR-0008 결정 4 의 일부를 대체) |
+| [0012](0012-role-interface-schemas.md) | 역할 출력의 스키마, packet_gaps 의 자리, 옛 형식 기록과의 공존 |
