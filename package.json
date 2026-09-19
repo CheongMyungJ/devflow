@@ -20,6 +20,8 @@
     "request-revision": "node scripts/request-revision.mjs",
     "approve-step": "node scripts/approve-step.mjs",
     "add-feedback": "node scripts/add-feedback.mjs",
+    "issue-task": "node scripts/issue-task.mjs",
+    "complete-task": "node scripts/complete-task.mjs",
     "check-store-read": "npm run gen && node scripts/check-store-read.mjs",
     "pretypecheck": "npm run gen",
     "typecheck": "tsc --noEmit",

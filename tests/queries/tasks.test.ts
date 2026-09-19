@@ -19,7 +19,7 @@ describe('queries.getTask / listTasks (AC6)', () => {
   it('getTask 는 없는 Task 에 undefined 를, 손상된 Task 에 오류를 돌려준다', async () => {
     const dataDir = tempDataDir();
     const store = newStore(dataDir);
-    const task = await createTask({ store, clock, actor: 'system' }, input('a'));
+    const task = await createTask({ store, clock, actor: 'human:tester' }, input('a'));
 
     expect(await getTask({ store }, task.id)).toEqual(task);
     expect(await getTask({ store }, 'T-0404')).toBeUndefined();
@@ -30,7 +30,7 @@ describe('queries.getTask / listTasks (AC6)', () => {
 
   it('listTasks 는 ID 순으로 돌려주고 status 로 거른다', async () => {
     const store = newStore(tempDataDir());
-    const ctx = { store, clock, actor: 'system' };
+    const ctx = { store, clock, actor: 'human:tester' };
     const a = await createTask(ctx, input('a'));
     const b = await createTask(ctx, input('b'));
     await createTask(ctx, input('c'));
@@ -46,7 +46,7 @@ describe('queries.getTask / listTasks (AC6)', () => {
   it('읽지 못한 Task 를 숨기지 않는다: 나머지와 함께, 무엇이 왜 읽히지 않는지 돌려준다', async () => {
     const dataDir = tempDataDir();
     const store = newStore(dataDir);
-    const ctx = { store, clock, actor: 'system' };
+    const ctx = { store, clock, actor: 'human:tester' };
     await createTask(ctx, input('ok'));
     const broken = await createTask(ctx, input('broken'));
     writeFileSync(join(dataDir, broken.id, 'task.yaml'), `id: ${broken.id}\ntitle: broken\n`);
@@ -61,7 +61,7 @@ describe('queries.getTask / listTasks (AC6)', () => {
 
   it('sampleTask 와 같은 모양의 Task 를 직접 저장해도 같은 query 로 읽힌다 (commands 를 거치지 않은 데이터)', async () => {
     const store = newStore(tempDataDir());
-    const made = await store.createTask((id) => ({ task: sampleTask(id), events: [{ type: 'task.created', actor: 'system', at: '2026-01-01T00:00:00Z' }] }));
+    const made = await store.createTask((id) => ({ task: sampleTask(id), events: [{ type: 'task.created', actor: 'human:tester', at: '2026-01-01T00:00:00Z' }] }));
     expect(await getTask({ store }, made.task.id)).toEqual(made.task);
   });
 });

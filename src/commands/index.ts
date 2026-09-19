@@ -10,3 +10,4 @@ export { recordGate, type RecordGateInput } from './gates.js';
 export { type ArtifactSource, completeRun, type CompleteRunInput, failRun, type FailRunInput, submitRun, type SubmitRunInput } from './runs.js';
 export { defineStep, type DefineStepInput, recordDecision, type RecordDecisionInput } from './plan.js';
 export { ADDABLE_FEEDBACK_KINDS, addFeedback, type AddFeedbackInput, approveStep, type ApproveStepInput, requestRevision, type RequestRevisionInput } from './review.js';
+export { completeTask, type CompleteTaskInput } from './complete-task.js';
