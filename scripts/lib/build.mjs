@@ -11,6 +11,7 @@
 // 새 빌드는 <cache>/.tmp-<pid>-<난수>/ 에 만들고 끝에 stamp.json 을 쓴 뒤 rename 으로 제자리에 넣는다. 그래서 제자리에 있는 디렉터리는
 // 언제나 온전한 빌드다. 두 프로세스가 동시에 빌드하면 늦은 쪽의 rename 이 이미 있는 디렉터리와 부딪힌다 — 그 디렉터리의 stamp 가
 // 같은 키면 그것을 쓰고 자기 임시 디렉터리를 지운다. 다른 키의 옛 빌드는 새 빌드를 넣은 뒤 지운다(지우지 못하면 다음에).
+// 대상이 없는 rename의 EPERM·EBUSY·EACCES는 최대 1초 재시도한다. 다른 대상·영구 오류는 그대로 거부한다.
 //
 // 환경 변수:
 //   DEVFLOW_BUILD_CACHE    캐시 디렉터리(기본 node_modules/.cache/devflow-entry). 테스트는 자기 위치를 준다 — 입구의 캐시를 건드리지 않게.
@@ -31,6 +32,8 @@ export const TSC_ARGS = Object.freeze(['-p', '.', '--noCheck']);
 const STAMP = 'stamp.json';
 /** 이보다 오래된 남의 임시 디렉터리는 끊긴 빌드의 찌꺼기로 보고 지운다. */
 const STALE_TMP_MS = 60 * 60 * 1000;
+const RENAME_RETRY_MS = 1000;
+const TRANSIENT_RENAME_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES']);
 
 function walk(dir, keep) {
   if (!existsSync(dir)) return [];
@@ -112,12 +115,21 @@ export function prepareBuild({ repoRoot = REPO_ROOT, cacheDir = process.env.DEVF
     const hold = Number(process.env.DEVFLOW_BUILD_HOLD_MS);
     if (hold > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, hold);
     const end = Date.now();
-    try {
-      renameSync(tmp, dir);
-    } catch (error) {
-      // 먼저 넣은 쪽이 있다. 같은 키면 그것을 쓴다. 온전하지 않은 디렉터리는 제자리에 생기지 않는다(rename 으로만 들어간다).
-      if (readStamp(dir)?.key !== key) throw error;
-      return trace('raced', { start, end });
+    const deadline = performance.now() + RENAME_RETRY_MS;
+    const wait = new Int32Array(new SharedArrayBuffer(4));
+    for (;;) {
+      try {
+        renameSync(tmp, dir);
+        break;
+      } catch (error) {
+        // 같은 키의 온전한 빌드가 먼저 도착했으면 재사용한다. 다른 대상은 덮어쓰지 않는다.
+        if (readStamp(dir)?.key === key) return trace('raced', { start, end });
+        const remaining = deadline - performance.now();
+        // Windows에서 방금 쓴 파일의 일시적 접근 충돌도 EPERM 등으로 온다.
+        // 대상이 없을 때만 제한 시간 안에 재시도한다. 영구 오류는 그대로 올린다.
+        if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || existsSync(dir) || remaining <= 0) throw error;
+        Atomics.wait(wait, 0, 0, Math.min(20, remaining));
+      }
     }
     pruneOthers(cacheDir, dir);
     return trace('built', { start, end });
