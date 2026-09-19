@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { completeRun, failRun, recordGate, submitRun } from '../../src/commands/index.js';
 import { TaskNotFoundError } from '../../src/store/errors.js';
+import type { ChangeInput, Store } from '../../src/store/types.js';
 import { createSample, newStore, tempDataDir } from '../store/helpers.js';
 import { run as runRecord } from '../store/records.js';
 import {
@@ -263,5 +264,45 @@ describe('recordGate', () => {
     const { dataDir, store, taskId, sys } = await setupRound('running');
     await store.commit(taskId, { writes: [{ kind: 'run', value: runRecord(taskId, 'R-001', { stepId: 'step-001', role: 'reviewer', status: 'submitted' }) }], events: [{ type: 'run.submitted', actor: 'system', run_id: 'R-001', at: NOW_SECONDS }] });
     expect(await expectRejected(dataDir, () => recordGate(sys, { taskId, stepId: 'step-001', reviewerRunId: 'R-001', artifactRefs: [`artifact://${taskId}/step-001/plan@v1`], output: reviewerOutput() }))).toMatch(/running 다 — recordGate\(pass\) 는 checking 에서만/);
+  });
+});
+
+describe('읽고 판단한 뒤 쓴다 — commitAfterReading (commands.md 4절)', () => {
+  /** 첫 commit 직전에 남의 commit 하나를 끼워 넣는 Store. */
+  function racing(store: Store, interfere: () => Promise<unknown>): Store {
+    let done = false;
+    return Object.create(store, {
+      commit: {
+        value: async (id: string, change: ChangeInput) => {
+          if (!done) {
+            done = true;
+            await interfere();
+          }
+          return store.commit(id, change);
+        },
+      },
+    }) as Store;
+  }
+
+  it('끼어든 commit 뒤에 다시 읽고 다시 판단해 기록한다 — 한 commit, 새 seq', async () => {
+    const { store, taskId } = await setupRound('defined');
+    const s = racing(store, () => store.commit(taskId, { events: [{ type: 'ledger.updated', actor: 'system', at: NOW_SECONDS }] }));
+    const { result } = await submitRun(ctxOf(s), { taskId, ...worker });
+    expect(result.events.map((e) => [e.seq, e.type])).toEqual([
+      [4, 'run.submitted'],
+      [5, 'step.status_changed'],
+    ]);
+  });
+
+  it('끼어든 commit 이 Step 의 status 를 바꿨으면 다시 판단해 거부한다 — 끼어든 것 말고는 아무것도 쓰지 않았다', async () => {
+    const { store, taskId } = await setupRound('defined');
+    const closeStep = async () => {
+      const step = (await store.get('step', { taskId, stepId: 'step-001' }))!;
+      await store.commit(taskId, { writes: [{ kind: 'step', value: { ...step, status: 'closed' } }], events: [{ type: 'step.status_changed', actor: 'system', step_id: 'step-001', data: { from: 'defined', to: 'closed' }, at: NOW_SECONDS }] });
+    };
+    const error = await submitRun(ctxOf(racing(store, closeStep)), { taskId, ...worker }).catch((e: unknown) => e);
+    expect(String(error)).toMatch(/closed 다 — submitRun\(worker\)/);
+    expect((await store.readEvents(taskId)).at(-1)!.data).toEqual({ from: 'defined', to: 'closed' });
+    expect((await store.list('run', { taskId })).items).toEqual([]);
   });
 });
