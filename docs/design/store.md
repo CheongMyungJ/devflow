@@ -77,7 +77,7 @@
 - 엔티티는 YAML, 이벤트는 JSON Lines. 줄바꿈은 항상 LF, 인코딩은 UTF-8.
 - `dataDir` 은 구현체 생성자 인자다. 인터페이스에는 나타나지 않는다.
 - "Task 가 존재한다" 의 정의: `events.jsonl` 에 seq 1 이 있다. 디렉터리만 있고 이벤트가 없는 것은 버려진 ID 다.
-- `.locks/`, `.pending-*/`, `.rollbacks` 는 기록이 아니다. `devflow-data/.gitignore` 에 이 세 줄이 있어 어느 깊이에 생겨도 git 에 잡히지 않는다(5절 F8). 이름은 `src/store/file/names.mjs`(`LOCKS_DIR`, `PENDING_PREFIX`, `ROLLBACKS_FILE`) 한 곳에 있다. 내부 파일이 실제로 있는 상태에서 `git status` 에 기록 파일만 보이는지는 `.gitignore` 사본으로 `tests/task-flow.test.ts` 가, 실제 checkout 의 `.gitignore` 가 그 이름들을 가리는지는 `npm run check-gitignore -- <data-dir>` 가 확인한다(T-0006 AC7).
+- `.locks/`, `.pending-*/`, `.rollbacks` 는 기록이 아니다. `devflow-data/.gitignore` 에 이 세 줄이 있어 어느 깊이에 생겨도 git 에 잡히지 않는다(5절 F8). 이름은 `src/store/file/names.mjs`(`LOCKS_DIR`, `PENDING_PREFIX`, `ROLLBACKS_FILE`) 한 곳에 있다. 내부 파일이 실제로 있는 상태에서 `git status` 에 기록 파일만 보이는지는 `.gitignore` 사본으로 `tests/task-flow.test.ts` 가, 실제 checkout 의 `.gitignore` 가 그 이름들을 가리는지는 `npm run check-gitignore -- <data-dir>` 가 확인한다(T-0006 AC7 — 부정 규칙이나 사용자 설정·`.git/info/exclude` 에만 있는 규칙으로 가려진 것은 통과로 치지 않는다).
 
 ### 2.2 Lock
 

@@ -6,7 +6,7 @@
 // 두 번째 테스트(AC7)는 같은 디렉터리에 장애 주입으로 Store 의 내부 파일(.locks/, .pending-*/, .rollbacks)을 실제로 만든 뒤 git status 를 본다.
 // Step 한 바퀴의 더 긴 변형(실패·재실행, 사람의 수정 요청, 질문)은 tests/step-round-flow.test.ts.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { parse, stringify } from 'yaml';
@@ -268,5 +268,72 @@ describe('check-gitignore (실제 checkout 의 .gitignore 대조 명령)', () =>
     expect(plain.status, plain.all).toBe(2);
     expect(plain.stderr).toMatch(/git checkout 이 아니다/);
     expect(entry.run('check-gitignore', []).status).toBe(2);
+  });
+
+  // G-005 A: 규칙이 맞기만 하면 무시됨으로 보던 판단이 부정 규칙과 checkout 밖 출처의 규칙에 속았다. 두 재현과 그 변형을 거부한다.
+  const fixture = readFileSync(GITIGNORE, 'utf8');
+  const commitAll = (dir: string) => {
+    git(dir, ['add', '-A']);
+    git(dir, ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'change']);
+  };
+  /** check-gitignore 를 돌리고 파일·git status 가 그대로인지 본다. */
+  const checkUnchanged = (dir: string) => {
+    const before = filesUnder(dir);
+    const status = git(dir, ['status', '--porcelain', '--untracked-files=all', '--ignored']);
+    const r = entry.run('check-gitignore', [dir]);
+    expect(filesUnder(dir)).toEqual(before);
+    expect(git(dir, ['status', '--porcelain', '--untracked-files=all', '--ignored'])).toBe(status);
+    return r;
+  };
+
+  it('부정 규칙(!.rollbacks)이 마지막으로 맞으면 — 데이터 repo 의 .gitignore 끝이든 Task 디렉터리의 .gitignore 든 — git status 에 보이는 그 경로를 무시되지 않음으로 보고 exit 1', () => {
+    for (const layout of ['root', 'nested'] as const) {
+      const dir = gitDataDir(layout === 'root' ? `${fixture}!.rollbacks\n` : fixture);
+      mkdirSync(join(dir, 'T-0001'));
+      if (layout === 'nested') {
+        writeFileSync(join(dir, 'T-0001', '.gitignore'), '!.rollbacks\n');
+        commitAll(dir);
+      }
+      writeFileSync(join(dir, 'T-0001', ROLLBACKS_FILE), '1\n'); // 실제 내부 파일
+      expect(porcelain(dir).map((e) => e.path)).toContain(`T-0001/${ROLLBACKS_FILE}`); // git 은 가리지 않는다
+      const r = checkUnchanged(dir);
+      expect(r.status, r.all).toBe(1);
+      expect(r.stderr).toMatch(/FAIL not ignored {2}T-0001\/\.rollbacks {2}\(negated by (T-0001\/)?\.gitignore:\d+:!\.rollbacks\)/);
+      expect(r.stderr).toMatch(/1 of 5 internal paths are not ignored/);
+      expect(r.stdout).toMatch(/^ignored {2}T-0001\/\.pending-0\/x {2}\(\.gitignore:\d+:\.pending-\*\/\)/m);
+    }
+  });
+
+  it('규칙이 core.excludesFile(사용자 설정)이나 .git/info/exclude 에만 있으면 git 은 가려도 데이터 repo 의 보장이 아니므로 exit 1', () => {
+    const excludes = join(scratch, 'user-excludes');
+    writeFileSync(excludes, '.locks/\n.pending-*/\n.rollbacks\n');
+    for (const where of ['excludesFile', 'info/exclude'] as const) {
+      const dir = gitDataDir('Thumbs.db\n'); // 내부 파일의 규칙이 없는 repo .gitignore
+      if (where === 'excludesFile') git(dir, ['config', 'core.excludesFile', excludes.replaceAll('\\', '/')]);
+      else writeFileSync(join(dir, '.git', 'info', 'exclude'), readFileSync(excludes));
+      mkdirSync(join(dir, 'T-0001'));
+      writeFileSync(join(dir, 'T-0001', ROLLBACKS_FILE), '1\n');
+      expect(porcelain(dir)).toEqual([]); // git status 로는 가려져 보인다 — 옛 판단이 속던 상태
+      const r = checkUnchanged(dir);
+      expect(r.status, r.all).toBe(1);
+      expect(r.stderr).toMatch(/FAIL not ignored {2}T-0001\/\.rollbacks {2}\(.*:\d+:\.rollbacks — not a \.gitignore file/);
+      expect(r.stderr).toMatch(/5 of 5 internal paths are not ignored/);
+    }
+  });
+
+  it('규칙이 추적하지 않는 .gitignore 나 HEAD 와 다르게 고친 .gitignore 에만 있으면 exit 1', () => {
+    const untracked = gitDataDir('Thumbs.db\n');
+    mkdirSync(join(untracked, 'T-0001'));
+    writeFileSync(join(untracked, 'T-0001', '.gitignore'), '.pending-*/\n.rollbacks\n');
+    const u = checkUnchanged(untracked);
+    expect(u.status, u.all).toBe(1);
+    expect(u.stderr).toMatch(/FAIL not ignored {2}T-0001\/\.rollbacks {2}\(T-0001\/\.gitignore:2:\.rollbacks — not a tracked \.gitignore/);
+
+    const modified = gitDataDir('Thumbs.db\n');
+    writeFileSync(join(modified, '.gitignore'), fixture); // 규칙은 작업 트리에만 있다
+    const m = checkUnchanged(modified);
+    expect(m.status, m.all).toBe(1);
+    expect(m.stderr).toMatch(/FAIL not ignored {2}\.locks\/ {2}\(\.gitignore:\d+:\.locks\/ — differs from HEAD\)/);
+    expect(m.stderr).toMatch(/5 of 5 internal paths are not ignored/);
   });
 });
