@@ -36,3 +36,5 @@
 | [0012](0012-role-interface-schemas.md) | 역할 출력의 스키마, packet_gaps 의 자리, 옛 형식 기록과의 공존 |
 | [0013](0013-task-intent-fields.md) | Task 정의에 의도의 칸, AC 는 성공 기준을 가리킨다, 사람이 답할 질문이 남으면 발행되지 않는다 |
 | [0014](0014-two-stage-intake.md) | Intake 는 두 단계 — 의도 확인 뒤에 정의 확인 |
+| [0015](0015-store-entities-blob-ids-commit-id.md) | Store 의 나머지 엔티티 — 불변 기록, commit 안의 blob, Task 안의 ID 발급, commit 식별자 |
+| [0016](0016-single-schema-loader-cross-file-ref.md) | 스키마를 파일을 가로질러 `$ref` 하고, 스키마 로더를 하나로 |

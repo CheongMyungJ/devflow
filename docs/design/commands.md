@@ -30,6 +30,7 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드)에�
 | `InvalidChangeError` | command 의 버그다 | 그대로 올린다 | 내부 오류 |
 | `TaskNotFoundError` | 그런 Task 가 없다 | 그대로 올린다 | Task ID 를 확인하라 |
 | `ConflictError` | 상태를 읽은 뒤 누군가 먼저 바꿨다 | 4절의 패턴 | (대개 사용자에게 보이지 않는다) |
+| `AlreadyExistsError` | 불변인 기록(Decision, GateResult, Artifact 버전, blob)이 이미 있거나, Task 안의 ID 가 다른 자리에서 이미 쓰였거나, 대소문자만 다른 key·이름의 기록이 있다(store.md 3.2). 기록된 것이 없다 | 그대로 올린다. 다시 시도해도 같은 오류다. 결과를 모른 채 다시 보낸 쓰기라면 "이미 있다" 가 곧 원하던 상태일 수 있으므로 필요하면 `get` 으로 그 기록을 읽어 확인할 수 있다(결과를 알 수 없는 commit 의 확인 자체는 3절의 식별자로 한다) | `subject`(어떤 기록인지). 같은 ID·버전으로 다시 쓸 수 없다 — 새 ID·버전으로 써야 한다 |
 | `StoreBusyError` | 다른 프로세스가 그 Task 를 쥐고 있다. 기록된 것이 없다 | 그대로 올린다. **command 가 다시 시도하지 않는다** — Store 가 이미 제한 시간만큼 기다렸다 | `detail` 을 **그대로** 보여 준다. 누가 쥐고 있는지, 무엇을 확인하고 무엇을 지우면 풀리는지가 들어 있다 |
 | `StoreUnavailableError` | 저장소에 접근하지 못했다. 기록된 것이 없다 | 그대로 올린다 | `cause` 의 내용. 다시 시도해도 안전하다 |
 | `CommitOutcomeUnknownError` | 기록되었는지 알 수 없다 | 3절의 확인 절차 | 확인까지 실패했을 때만: "기록되었는지 확인하지 못했다. `task status` 로 확인하라" |
@@ -73,9 +74,9 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드)에�
 
 - 멱등한 command(`advance`)는 "이미 처리됨" 을 성공으로 돌려준다. 같은 호출이 두 번 와도 이벤트는 한 번만 기록된다.
 - 사람의 승인처럼 **특정 버전을 보고 내린 판단**은 다시 읽었을 때 그 버전이 여전히 최신인지 확인한다. 아니면 오류로 끝낸다(ADR-0004).
-- 읽기와 판단을 Store 의 lock 안에서 하지 않는다. `ChangeInput` 의 함수 형태는 `lastSeq` 만 받으며, 그 안에서 Store 를 다시 부르면 안 된다(동기·무부작용).
+- 읽기와 판단을 Store 의 lock 안에서 하지 않는다. `ChangeInput` 의 함수 형태가 받는 `CommitContext` 에는 `lastSeq` 와 Task 안의 ID 발급(`nextId(kind)`, `nextArtifactVersion(stepId, name)` — store.md 3.4)만 있고 엔티티를 읽는 멤버는 없다(store.md 3.9). 함수 안에서 Store 를 다시 부르면 안 된다(동기·무부작용). 새 기록의 ID 는 이 함수 안에서 `nextId` 로 받아 쓴다 — lock 을 쥔 뒤의 상태로 세므로 동시 commit 과 겹치지 않는다.
 
-이번 Task 의 `createTask` 는 읽고 판단하는 단계가 없어 이 패턴을 쓰지 않는다.
+`createTask` 는 읽고 판단하는 단계가 없어 이 패턴을 쓰지 않는다.
 
 ## 5. Store 인스턴스의 수명
 
