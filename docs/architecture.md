@@ -49,7 +49,7 @@ Task 1 ─── N Step 1 ─── N Attempt ─── Artifact(version)
 
 필드 정의는 `schemas/` 가 기준이다.
 
-- **Task** — 목표, 배경, 제약, 성공 기준(AC), 유형, 대상 repo
+- **Task** — 유형, 대상 repo, 목표(바라는 결과), 배경, 제약, 수용 기준(AC) + 의도의 칸: 문제, 식별 가능한 성공 기준, 영향받는 사람과 시스템, 범위 밖, 열린 질문(질문마다 누가 답하는가). AC 는 성공 기준을 검증 가능한 문장으로 옮긴 것이고 각 AC 가 어느 성공 기준을 옮겼는지 가리킨다. 사람이 답해야 할 열린 질문이 남은 Task 는 스키마가 거부해 발행되지 않는다 (ADR-0013)
 - **Step** — goal / scope / inputs / outputs / done_when / verify / approval
 - **Artifact** — 문서는 `artifact://T/step/name@vN`, 코드는 `repo+branch+SHA`. 승인된 버전이 공식 기록
 - **Feedback** — 수정 요청 / 질문 / 승인 / 요구사항 추가. 검토 시 또는 실행 중(live) 발생

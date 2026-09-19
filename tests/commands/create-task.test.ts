@@ -52,6 +52,47 @@ describe('commands.createTask (AC6)', () => {
     expect((await createTask(context(store), input)).id).toBe('T-0001');
   });
 
+  // 의도의 칸(T-0004). 입력 타입은 생성된 Task 타입에서 나오므로 새 칸을 그대로 받는다 — 받지 못하면 typecheck 가 실패한다.
+  const intent = {
+    problem: '부분 취소를 해도 재고가 돌아오지 않아 품절로 잘못 표시된다',
+    success_criteria: [{ id: 'S1', text: '부분 취소한 만큼 재고 화면의 수량이 늘어난다' }],
+    affected: ['재고 담당자 — 수동 보정이 필요 없어진다', '정산 배치 — 재고 수량을 읽는다'],
+    non_goals: ['전체 취소의 동작 변경'],
+    acceptance_criteria: [
+      { id: 'AC1', text: '기존 테스트가 통과한다', covers: [] },
+      { id: 'AC2', text: '부분 취소 시 취소 수량만큼 재고 복원', covers: ['S1'] },
+    ],
+  } satisfies Partial<CreateTaskInput>;
+
+  it('의도의 칸을 채운 입력으로 발행하면 저장된 Task 에 그 칸이 그대로 있다', async () => {
+    const store = newStore(tempDataDir());
+    const filled: CreateTaskInput = {
+      ...input,
+      ...intent,
+      open_questions: [
+        { id: 'Q1', text: '복원 시점을 취소 요청 때로 할지 환불 완료 때로 할지', answered_by: 'planner_or_worker' },
+        { id: 'Q2', text: '정산 배치가 복원된 수량을 다시 읽는가', answered_by: 'investigation_step' },
+      ],
+    };
+    const task = await createTask(context(store), filled);
+    const { title, type, goal, target, ...newFields } = filled;
+    expect(task).toMatchObject(newFields);
+    expect(Object.keys(newFields).sort()).toEqual(['acceptance_criteria', 'affected', 'non_goals', 'open_questions', 'problem', 'success_criteria']);
+    expect(await getTask({ store }, task.id)).toEqual(task); // 다시 읽어도 같다 — 저장된 것에 새 칸이 있다
+    expect((await getTask({ store }, task.id))?.open_questions).toEqual(filled.open_questions);
+  });
+
+  it("'사람이 답함' 이 남은 열린 질문이 있으면 발행되지 않는다 — 담당자의 값만 다른 같은 입력은 발행된다", async () => {
+    const dataDir = tempDataDir();
+    const store = newStore(dataDir);
+    const withOwner = (answered_by: string) => ({ ...input, ...intent, open_questions: [{ id: 'Q1', text: '복원 시점', answered_by }] }) as CreateTaskInput;
+    await expect(createTask(context(store), withOwner('human'))).rejects.toBeInstanceOf(SchemaViolationError);
+    expect(await listTasks({ store })).toEqual({ tasks: [], unreadable: [] });
+    expect(snapshot(dataDir)).toEqual({}); // 아무것도 남지 않았다
+    expect((await createTask(context(store), withOwner('planner_or_worker'))).id).toBe('T-0001');
+    expect((await createTask(context(store), withOwner('investigation_step'))).id).toBe('T-0002');
+  });
+
   it('Store 의 오류는 바꾸지 않고 그대로 올린다 (안내가 담긴 detail 이 사용자에게 닿아야 한다)', async () => {
     const busy = new StoreBusyError('T-0001', 'pid 123 가 쥐고 있다. … 를 삭제하면 풀린다');
     const store = { createTask: () => Promise.reject(busy) } as unknown as Store;
