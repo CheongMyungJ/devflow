@@ -20,3 +20,36 @@ export const RECORD_FILE = Object.freeze({
 
 /** Artifact 버전의 meta: steps/<step>/artifacts/<name>/v<N>.meta.yaml. 버전은 1번 그룹. */
 export const META_FILE = /^v(\d+)\.meta\.yaml$/;
+
+// ---------------------------------------------------------------- Store 의 내부 파일 (docs/design/store.md 2.1)
+// 기록이 아니다 — 데이터 repo 의 .gitignore 가 가린다. 이름은 여기 한 곳에 있다: file-store.ts 가 쓰고, 실제 checkout 의 .gitignore 를 대 보는
+// scripts/check-gitignore.mjs 와 git 테스트(tests/task-flow.test.ts)가 이것을 import 한다.
+
+/** 데이터 디렉터리 바로 아래의 lock 디렉터리. 그 안(Task 마다의 lock, 임시 디렉터리)은 모두 내부 파일이다. */
+export const LOCKS_DIR = '.locks';
+
+/** Task 디렉터리 안의 진행 중(또는 끊긴) commit 의 디렉터리 이름 앞부분: .pending-<token>/. */
+export const PENDING_PREFIX = '.pending-';
+
+/** Task 디렉터리 안의 롤백 횟수 표식 파일. */
+export const ROLLBACKS_FILE = '.rollbacks';
+
+/**
+ * 내부 파일이 생기는 자리의 예시 경로(데이터 디렉터리 기준, 구분자 '/'). 디렉터리는 '/' 로 끝난다.
+ * git 이 이 경로들을 모두 무시해야 한다 — 안쪽의 파일 이름은 바뀔 수 있으므로 디렉터리 안의 것은 아무 이름('x')으로 든다.
+ */
+export function internalPathExamples(taskDir) {
+  return [
+    `${LOCKS_DIR}/`,
+    `${LOCKS_DIR}/${taskDir}.lock/x`,
+    `${taskDir}/${PENDING_PREFIX}0/`,
+    `${taskDir}/${PENDING_PREFIX}0/x`,
+    `${taskDir}/${ROLLBACKS_FILE}`,
+  ];
+}
+
+/** 데이터 디렉터리 기준 경로(구분자 '/')가 내부 파일(또는 그 안)인가. */
+export function isInternalPath(rel) {
+  const parts = rel.split('/').filter((p) => p !== '');
+  return parts[0] === LOCKS_DIR || parts.some((p) => p.startsWith(PENDING_PREFIX)) || parts.at(-1) === ROLLBACKS_FILE;
+}

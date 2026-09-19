@@ -63,7 +63,7 @@ describe('구조 제약 — scripts/', () => {
   /** 검증용 스크립트: 파일 구현체를 빌드에서 직접 연다 (docs/architecture.md 2절). */
   const VERIFIER = 'scripts/check-store-read.mjs';
   /** 파일 구현체의 이름 규칙 모듈만 import 한다(빌드 없이 돈다 — src/store/file/names.mjs). */
-  const RULE_USERS = ['scripts/validate-data.mjs'];
+  const RULE_USERS = ['scripts/validate-data.mjs', 'scripts/check-gitignore.mjs'];
   /** Store 로 쓰는 입구. 조립 지점에서 command 를 받아 command 만 부른다. */
   const ENTRIES = ['append-events', 'submit-run', 'complete-run', 'fail-run', 'record-gate', 'propose-step', 'define-step', 'request-revision', 'approve-step', 'add-feedback', 'issue-task', 'complete-task'].map((name) => `scripts/${name}.mjs`);
   /** 입구가 함께 쓰는 인자 해석·파일 읽기·보고. 데이터 디렉터리에 쓰지 않고 Store 를 모른다. */

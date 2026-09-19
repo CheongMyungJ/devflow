@@ -1,5 +1,5 @@
 // Step 한 바퀴의 흐름 (T-0006 step-004 ④, AC3·AC4 의 핵심): 임시 데이터 디렉터리에서 입구(자식 프로세스)만으로 한 바퀴 전체를 기록한다.
-// Task 는 기존 createTask 로 준비한다(issue-task 는 뒤 Step). 그 뒤로 손으로 쓴 yaml 이나 이벤트는 없다.
+// Task 는 createTask 로 준비한다(Task 발행부터 done 까지 입구만으로 도는 흐름은 tests/task-flow.test.ts). 그 뒤로 손으로 쓴 yaml 이나 이벤트는 없다.
 // 명령마다 확인한다: step.yaml 의 status = 그 Step 의 status 를 정한 마지막 이벤트(step.status_changed 의 to, 없으면 step.proposed 의 proposed),
 // 새 이벤트 모두에 commit_id(명령 하나에 하나), 도구가 채운 초 단위 UTC 의 at, ref 는 isEventRef 의 모양. 끝에 validate-data 0 failed.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -122,7 +122,7 @@ describe('Step 한 바퀴 — 입구만으로', () => {
       'proposed→defined', 'defined→running', 'running→checking', 'checking→revising', 'revising→checking', 'checking→in_review',
       'in_review→revising', 'revising→checking', 'checking→in_review', 'in_review→approved', 'approved→closed',
     ]);
-    // 새 기록의 모든 시각이 초 단위(엔티티의 created_at·submitted_at·ended_at 포함 — createTask 가 쓴 task.yaml 과 첫 이벤트는 이 Step 의 범위 밖)
+    // 새 기록의 모든 시각이 초 단위(엔티티의 created_at·submitted_at·ended_at 포함 — task.yaml 과 task.created 는 tests/task-flow.test.ts 가 본다)
     const times: string[] = [];
     const walk = (d: string) => {
       for (const name of readdirSync(d)) {

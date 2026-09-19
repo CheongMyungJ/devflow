@@ -39,6 +39,7 @@ import type {
 } from '../types.js';
 import { codeOf, type FileOps, nodeFileOps, retryTransient, sleep } from './fs-ops.js';
 import { blobRelPath, issuedNumberOf, type Loc, locOfRel, relOfLoc, TASK_DIR } from './layout.js';
+import { LOCKS_DIR, PENDING_PREFIX, ROLLBACKS_FILE } from './names.mjs';
 import { LockManager } from './lock.js';
 
 export interface FileStoreOptions {
@@ -155,8 +156,7 @@ function compareLoc(a: Loc, b: Loc): number {
 }
 
 const EVENTS = 'events.jsonl';
-const ROLLBACKS = '.rollbacks';
-const PENDING_PREFIX = '.pending-';
+const ROLLBACKS = ROLLBACKS_FILE;
 const LF = 0x0a;
 
 interface PendingFile {
@@ -322,7 +322,7 @@ export class FileStore implements Store {
     this.dataDir = options.dataDir;
     this.ops = options.ops ?? nodeFileOps;
     this.transientRetryMs = options.transientRetryMs ?? 1000;
-    this.locks = new LockManager(this.ops, join(this.dataDir, '.locks'), {
+    this.locks = new LockManager(this.ops, join(this.dataDir, LOCKS_DIR), {
       timeoutMs: options.lockTimeoutMs ?? 5000,
       transientRetryMs: this.transientRetryMs,
     });
