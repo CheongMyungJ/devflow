@@ -408,6 +408,7 @@ export class FileStore implements Store {
   private planWrite(plan: WritePlan, write: EntityWrite, tmp: string, blobKeys: string[]): PlannedFile {
     const { kind, value } = write;
     const taskId = plan.taskId;
+    if (!Object.hasOwn(SCHEMA, kind)) throw new InvalidChangeError(`unknown kind: ${String(kind)}`);
     const loose = `${kind} ${String(taskIdOf(kind, value))}/${String((value as Fields)['id'] ?? (value as Fields)['ref'] ?? '?')}`;
     if (taskIdOf(kind, value) !== taskId) throw new InvalidChangeError(`${kind === 'task' ? `task ${String((value as Task).id)}` : loose} does not belong to ${taskId}`);
     this.assertValid('write', SCHEMA[kind], kind === 'task' ? `task ${taskId}` : loose, value);

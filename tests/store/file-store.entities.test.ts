@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { blobRef } from '../../src/store/blob-ref.js';
 import { SchemaViolationError } from '../../src/store/errors.js';
 import type { FileStore } from '../../src/store/file/index.js';
-import { createSample, newStore, snapshot, tempDataDir } from './helpers.js';
+import { nodeFileOps } from '../../src/store/file/index.js';
+import { createSample, ioError, newStore, opsWith, snapshot, tempDataDir } from './helpers.js';
 import { REPO_ROOT } from './paths.js';
 import { codeChange, decision, event, feedback, gate, run, step, storedDocument } from './records.js';
 
@@ -181,6 +182,29 @@ describe('FileStore: 0단계의 한 Step 치 기록을 Store 로만 쓴다 (AC4)
     expect(ids(await store.list('artifact', { taskId: t }))).toEqual([`artifact://${t}/step-001/change@v1`, `artifact://${t}/step-001/plan@v1`]);
     expect(ids(await store.list('artifact', { taskId: t, stepId: 'step-001', name: 'plan' }))).toEqual([`artifact://${t}/step-001/plan@v1`]);
     expect(ids(await store.list('run', { taskId: 'T-0099' }))).toEqual([]); // 없는 Task
+  });
+
+  it('뒷정리(rename)를 마치지 못한 commit 의 새 기록과 blob 도 get·list·getBlob 에 보인다 (store.md 2.4 의 tmp 읽기)', async () => {
+    const dataDir = tempDataDir();
+    const task = await createSample(newStore(dataDir));
+    const t = task.id;
+    let blocked = true; // 다른 프로그램이 tmp 를 붙들고 있는 상황
+    const store = newStore(dataDir, {
+      ops: opsWith({ rename: async (from, to) => (blocked && from.endsWith('.tmp') ? Promise.reject(ioError('EPERM')) : nodeFileOps.rename(from, to)) }),
+    });
+    await store.commit(t, {
+      writes: [{ kind: 'run', value: run(t, 'R-001', { stepId: 'step-001' }) }],
+      blobs: [{ owner: { taskId: t, stepId: 'step-001', runId: 'R-001' }, name: 'work-notes', content: 'pending' }],
+      events: [event('run.completed')],
+    });
+    expect(Object.keys(snapshot(dataDir)).some((f) => f.includes('.pending-'))).toBe(true);
+    expect((await store.get('run', { taskId: t, id: 'R-001' }))?.step_id).toBe('step-001');
+    expect((await store.list('run', { taskId: t })).items.map((r) => r.id)).toEqual(['R-001']);
+    expect(new TextDecoder().decode(await store.getBlob(`blob:${t}/step-001/R-001.work-notes`))).toBe('pending');
+    blocked = false;
+    await store.commit(t, { events: [event('run.submitted')] }); // 다음 commit 이 뒷정리를 마친다
+    expect(Object.keys(snapshot(dataDir)).some((f) => f.includes('.pending-'))).toBe(false);
+    expect(new TextDecoder().decode(await store.getBlob(`blob:${t}/step-001/R-001.work-notes`))).toBe('pending');
   });
 
   it('두 수준에 같은 ID 의 Run 이 있으면(손으로 만든 손상) get 은 모호함을 SchemaViolationError(read)로 드러낸다', async () => {

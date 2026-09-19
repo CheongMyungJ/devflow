@@ -229,7 +229,7 @@ step-002 에서 구현하고 테스트하며 확정한 내용이다. 환경: Win
 
 ## 3. 나머지 엔티티 (T-0005 에서 확정한 설계)
 
-T-0005 step-001 의 설계다. 구현은 뒤의 Step 이 하고, 구현하며 바뀐 것은 이 절을 고쳐 반영한다. 근거(기존 기록의 조사, 버린 대안, 실험)는 그 Step 의 작업 노트에 있다.
+T-0005 step-001 의 설계다. 구현은 T-0005 step-003 이 했고(`src/store/types.ts`, `errors.ts`, `blob-ref.ts`, `file/layout.ts`, `file/file-store.ts`), 구현하며 정한 것과 설계에서 더 좁힌 것은 3.11 에 있다. 근거(기존 기록의 조사, 버린 대안, 실험)는 각 Step 의 작업 노트에 있다.
 
 원칙은 T-0001 에서 정한 그대로다 — **기존 메서드(`createTask`, `commit`, `get`, `list`, `readEvents`)의 시그니처는 바꾸지 않고 추가만 한다.** 새 kind 는 `EntityMap` / `EntityKeyMap` / `EntityScopeMap` 의 항목으로, 새 기능은 `CommitContext`·`Change`·`CommitResult` 의 멤버와 새 메서드 `getBlob` 으로 더한다. 파일 위치는 파일 구현체만 안다(AGENTS.md 2번). 아래 표의 "파일 위치" 열은 파일 구현체의 규칙이고, 인터페이스에는 key 와 scope 만 나타난다.
 
@@ -486,6 +486,21 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 - **data repo 자동 commit**(ADR-0007): Store 의 책임이 아니라 commit 성공 후 호출되는 별도 구성 요소다. 파일 구현체 생성자에 `onCommitted(taskId, events)` 훅을 두면 된다.
 - **Ledger**(`ledger.md`)를 Store 로 옮기는 것.
 - 0단계의 운영 스크립트와 기록 방식을 Store 위로 옮기는 것.
+
+### 3.11 구현에서 정한 것 (T-0005 step-003)
+
+3.1~3.7 을 구현하며 설계가 말하지 않은 것을 정했다. 근거와 버린 대안은 그 Step 의 작업 노트에 있다.
+
+- **규칙을 둔 곳.** blob key 의 문법은 `src/store/blob-ref.ts` 의 `parseBlobRef`(와 그것으로 만드는 `blobRef`) 하나이고, artifact 스키마의 `$defs/blobKey` pattern 과 같은 key 를 받는지는 `tests/store/blob-key.test.ts` 가 같은 key 목록으로 확인한다. 파일 이름 규칙 — 쓰기가 놓는 자리, `list` 가 kind 로 읽는 이름, `nextId` 가 세는 이름, blob key → 파일과 그 역 — 은 `src/store/file/layout.ts` 한 곳이다. `scripts/validate-data.mjs` 는 같은 이름 규칙을 따로 적고(스크립트는 빌드 없이 돈다), 둘이 같은 파일을 읽는지는 `tests/store/list-rules.test.ts` 가 같은 디렉터리에 둘을 대 보아 확인한다.
+- **ID 의 모양은 쓸 때와 읽을 때가 다르다.** 쓸 때는 3.1 의 모양 그대로(3자리 0 채움, 999 를 넘으면 자릿수가 늘어난다 — `R-12`, `R-0012`, `R-000` 은 `InvalidChangeError`). 읽을 때(`list` 가 읽는 파일 이름, `get` 의 key)는 `<접두어>-<숫자>`(`R-\d+.yaml` 등, validate-data 와 같다)를 받는다 — 모양이 어긋난 파일을 조용히 건너뛰지 않고 읽어서, 스키마나 아래의 자리 확인에 걸리면 `invalid` 로 드러낸다. Step 디렉터리는 `step-<숫자>`. 모양이 맞지 않는 key 의 `get` 은 디스크를 보지 않고 `undefined` 다.
+- **읽을 때 값이 그 자리의 것인지 확인한다.** 파일의 ID·`task_id`·`step_id`(수준)·Artifact 의 `ref` 가 그 파일의 자리와 다르면 `SchemaViolationError(read)`(`list` 에서는 `invalid`). 쓰기는 값으로 자리를 정하므로 Store 가 쓴 파일은 언제나 맞는다. 사람이 파일을 복사·이동한 경우를 드러내기 위한 것이다. 기존 기록 T-0001~T-0005 는 모두 맞는다.
+- **한 Change 안에서** 같은 key 를 두 번 쓰는 것에 더해 같은 ID 를 다른 자리에 두 번 쓰는 것(예: Step 수준과 Task 수준의 R-005)도 `InvalidChangeError` 다(디스크와 부딪치는 것만 `AlreadyExistsError`). 알 수 없는 kind 도 `InvalidChangeError`.
+- **Artifact 를 쓸 때 `content_key`·`work_notes_key` 를 확인한다.** key 의 Task·Step 이 meta 의 `task_id`·`step_id` 와 같고, 그 blob 이 같은 commit 의 `Change.blobs` 에 있거나 이미 있어야 한다(아니면 `InvalidChangeError`). 3.3 의 "없는 blob 을 가리키는 엔티티가 생기지 않는다" 를 불변인 Artifact 에 대해 지키려면 필요하다. 기존 meta 의 key 는 모두 같은 Step 의 blob 이다. `stored_in` 등 스키마가 요구하지 않는 필드는 더 요구하지 않는다.
+- **`blobRef` 는 문법에 맞지 않는 소유자·이름을 `InvalidChangeError` 로 거부한다.** 조각에 `/` 나 `.` 이 섞여 다르게 나뉘는 key(예: taskId 에 Step 이 섞인 것)도 나눈 결과가 준 것과 다르므로 거부된다. `getBlob` 은 바이트(`Uint8Array` — 파일 구현체는 `Buffer`)를 돌려준다.
+- **기록의 목록(3.4)은 함수 형태가 아닌 Change 에도 읽는다.** 3.2 의 덮어쓰기 방지와 ID 유일성 검사가 같은 목록(lock 을 쥔 뒤, 복구가 끝난 디스크)을 쓰기 때문이다. `nextId` 는 기록 파일과 blob 파일의 소유자 ID 를 같은 규칙(`layout.ts`)으로 센다. Step 번호는 `steps/` 아래에 파일이 있는 디렉터리 이름으로 센다(`step.yaml` 이 없어도).
+- **commit 식별자는 lock 을 잡기 전에 호출마다 한 번 만든다.** 파일 구현체는 `ChangeInput` 의 함수를 한 호출에서 한 번만 부른다(재시도하지 않는다). 그러므로 "재시도에도 같은 값" 은 지금은 만드는 자리로만 보장된다.
+- **뒷정리가 남은 commit 의 결과를 읽을 때**(2.4, 2.7 의 lock 경로) 새 kind 와 blob 도 `.pending` 의 tmp 에서 읽고, `list`·`get` 이 파일을 찾을 때 그 파일들도 있는 것으로 센다. tmp 가 이미 제자리로 옮겨졌으면 제자리의 파일을 읽는다.
+- **AC7 의 확인**: `npm run check-store-read -- <data-dir>`(`scripts/check-store-read.mjs`). 데이터 디렉터리를 Store 로 열어 Task 마다 kind 마다 `list` 의 수와 `invalid` 를 validate-data 와 같은 이름 규칙으로 센 파일 수와 대 보고, runs/·gates/ 의 기록이 아닌 파일을 모두 `getBlob` 으로 읽어 내용을 비교한다. 파일을 쓰지 않는다.
 
 ## 4. DB 구현체로의 대응
 
