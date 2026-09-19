@@ -17,7 +17,7 @@ describe('artifact 참조의 문법', () => {
   it.each([
     // 로컬 경로 — 드라이브 문자, 역슬래시, 절대 경로, 상대 경로
     'C:\\x',
-    'C:/git/devflow-data/T-0006/steps/step-001/artifacts/plan/v1.meta.yaml',
+    'D:/data/T-0006/plan/v1.meta.yaml',
     'artifact://C:\\x',
     'artifact://T-0006/step-001/C:\\x@v1',
     'artifact://T-0006/step-001/C:@v1',
