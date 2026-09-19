@@ -2,7 +2,8 @@
 // (docs/design/commands.md 6.1~6.3). 모든 이벤트에 commit_id 가 붙는다.
 // 사용: npm run append-events -- <data-dir> <task-id> <events.json> [--actor human:<id>]
 //   events.json 은 { type, step_id?, run_id?, ref?, data? } 의 배열이다. actor·at·system_sha·seq·task_id·commit_id 는 도구가 채운다 —
-//   입력에 있으면 거부한다. actor 는 --actor 가 없으면 system 이다.
+//   입력에 있으면 거부한다. actor 는 --actor 가 없으면 system 이다. ref 는 artifact://<task>/<step>/<name>@v<N>, 발급 ID 의 정규형
+//   (step-NNN, D-NNN, F-NNN, G-NNN, R-NNN), Task id 만 받는다(로컬 경로는 거부 — commands.md 6.3).
 //   받는 type: ledger.updated, run.message_sent, decision.answered, task.requirement_added (done·aborted 인 Task 에는 ledger.updated 만).
 // 거부되면 아무것도 쓰지 않고 exit 1, 사용법 오류는 exit 2. ledger.md 는 쓰지 않는다 — Ledger 는 편집 도구로 고치고 이것으로 ledger.updated 를 남긴다.
 import { readFileSync } from 'node:fs';
@@ -27,7 +28,6 @@ for (let i = 0; i < argv.length; i++) {
 if (positional.length === 2) usage('옛 인자 모양(<task-dir> <events.json>)은 받지 않는다 — <data-dir> <task-id> <events.json> 로 준다');
 if (positional.length !== 3) usage();
 const [dataDir, taskId, eventsFile] = positional;
-if (!/^T-\d{4,}$/.test(taskId)) usage(`<task-id> 가 T-NNNN 모양이 아니다: ${taskId}`);
 
 let events;
 try {
@@ -38,6 +38,8 @@ try {
 }
 
 const { commands, ctx } = await assemble({ dataDir, actor });
+// Task id 의 모양은 src/store/refs.ts 한 곳에 있다 — 입구는 사본을 두지 않고 command 쪽의 것을 쓴다.
+if (!commands.isTaskId(taskId)) usage(`<task-id> 가 T-NNNN 모양이 아니다: ${taskId}`);
 try {
   const written = await commands.appendEvents(ctx, { taskId, events });
   const seqs = written.map((e) => e.seq);

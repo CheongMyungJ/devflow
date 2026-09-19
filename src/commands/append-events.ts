@@ -1,6 +1,7 @@
 // appendEvents: 다른 command 가 쓰지 않는 이벤트를 넣는 입구의 command (docs/design/commands.md 6.2, 6.3).
 
 import { CommitOutcomeUnknownError, ConflictError, TaskNotFoundError } from '../store/errors.js';
+import { isEventRef } from '../store/refs.js';
 import type { NewEvent } from '../store/types.js';
 import type { Event } from '../types/generated/index.js';
 import type { CommandContext } from './context.js';
@@ -60,11 +61,15 @@ export interface AppendEventsInput {
 
 const MAX_ATTEMPTS = 5;
 
+/** 거부 문구에 적는 ref 의 받는 모양(판단은 src/store/refs.ts 의 isEventRef 하나). */
+const EVENT_REF_FORMS = 'artifact://<task>/<step>/<name>@v<N>, step-NNN·D-NNN·F-NNN·G-NNN·R-NNN 의 정규형, Task id T-NNNN 만 받는다 — 로컬 경로는 기록하지 않는다';
+
 /**
  * 이벤트를 한 commit 으로 기록한다. 도구가 채우는 것: actor(ctx.actor), at(초 단위 UTC — 모든 이벤트가 같은 값), system_sha(ctx.systemSha),
  * seq·task_id·commit_id(Store). ledger.md 는 쓰지 않는다.
  *
  * 아무것도 쓰기 전에 거부한다(RejectedInputError): 입력이 배열이 아니거나 비었다, 도구가 채우는 필드가 있다, 모르는 필드가 있다,
+ * ref 가 isEventRef 의 모양(artifact 참조, 발급 ID 의 정규형, Task id)이 아니다(T-0006 F-003),
  * type 이 APPENDABLE_EVENT_TYPES 밖이다, step_id·run_id 가 그 Task 에 없다, Task 가 open 이 아닌데 ledger.updated 가 아닌 것이 있다.
  * 없는 Task 는 Store 의 TaskNotFoundError, 스키마 위반은 SchemaViolationError(write) 가 그대로 올라온다.
  * 읽은 뒤 다른 commit 이 끼어들면(ConflictError) 다시 읽고 다시 판단한다(commands.md 4절).
@@ -129,6 +134,8 @@ function checkShape(events: unknown): AppendEventInput[] {
     for (const key of ['step_id', 'run_id', 'ref'] as const) {
       if (e[key] !== undefined && (typeof e[key] !== 'string' || e[key] === '')) reasons.push(`${at}.${key}: 비어 있지 않은 문자열이어야 한다`);
     }
+    const ref = e['ref'];
+    if (typeof ref === 'string' && ref !== '' && !isEventRef(ref)) reasons.push(`${at}.ref: ${JSON.stringify(ref)} 는 받는 모양이 아니다 (${EVENT_REF_FORMS})`);
     const data = e['data'];
     if (data !== undefined && (typeof data !== 'object' || data === null || Array.isArray(data))) reasons.push(`${at}.data: 객체여야 한다`);
   });

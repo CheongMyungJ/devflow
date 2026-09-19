@@ -80,7 +80,38 @@ describe('commands.appendEvents', () => {
     ['data 가 객체가 아니다', [{ type: 'ledger.updated', data: 'x' }]],
     ['없는 Step', [{ type: 'ledger.updated', step_id: 'step-009' }]],
     ['없는 Run', [{ type: 'run.message_sent', run_id: 'R-009' }]],
+    // T-0006 F-003: ref 는 isEventRef 의 모양만 — 로컬 경로와 비정규 id 는 거부
+    ['ref: 드라이브 문자로 시작하는 경로', [{ type: 'ledger.updated', ref: 'C:\\data\\T-0001\\ledger.md' }]],
+    ['ref: 슬래시 드라이브 경로', [{ type: 'ledger.updated', ref: 'D:/data/T-0001/ledger.md' }]],
+    ['ref: 역슬래시로 시작하는 경로', [{ type: 'ledger.updated', ref: '\\\\server\\share\\x' }]],
+    ['ref: 슬래시가 든 상대 경로', [{ type: 'ledger.updated', ref: 'steps/step-001/runs/R-001.yaml' }]],
+    ['ref: 절대 경로', [{ type: 'ledger.updated', ref: '/home/me/ledger.md' }]],
+    ['ref: 비정규 gate id', [{ type: 'ledger.updated', ref: 'G1' }]],
+    ['ref: 0 채움이 틀린 id', [{ type: 'ledger.updated', ref: 'R-0001' }]],
+    ['ref: 앞뒤 공백', [{ type: 'ledger.updated', ref: ' F-001 ' }]],
+    ['ref: 로컬 경로가 섞인 artifact 참조', [{ type: 'ledger.updated', ref: 'artifact://T-0001/step-001/C:\\x@v1' }]],
+    ['ref: 받는 것과 섞인 경로 — 하나라도 있으면 전부 거부', [{ type: 'ledger.updated', ref: 'D-001' }, { type: 'ledger.updated', ref: 'C:\\x' }]],
   ];
+
+  it.each([
+    'artifact://T-0001/step-001/plan@v1',
+    'D-001',
+    'F-012',
+    'G-002',
+    'R-001',
+    'step-001',
+    'T-0001',
+  ])('ref 로 받는 모양은 기록한다(옛 기록의 네 모양과 발급 ID, Task id): %s', async (ref) => {
+    const { store, taskId } = await setup();
+    const [e] = await appendEvents(context(store), { taskId, events: [{ type: 'ledger.updated', ref }] });
+    expect(e!.ref).toBe(ref);
+  });
+
+  it('ref 의 거부 문구는 받는 모양을 적는다', async () => {
+    const { store, taskId } = await setup();
+    const error = (await appendEvents(context(store), { taskId, events: [{ type: 'ledger.updated', ref: 'C:\\x' }] }).catch((e: unknown) => e)) as RejectedInputError;
+    expect(error.reasons).toEqual([expect.stringMatching(/^events\[0\]\.ref: "C:\\\\x" 는 받는 모양이 아니다 \(artifact:\/\/<task>\/<step>\/<name>@v<N>, step-NNN·D-NNN·F-NNN·G-NNN·R-NNN/)]);
+  });
   it.each(rejected)('아무것도 쓰기 전에 거부한다: %s', async (_label, events) => {
     const { dataDir, store, taskId } = await setup();
     const before = contentSnapshot(dataDir);

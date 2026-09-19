@@ -4,3 +4,5 @@ export { createTask, type CreateTaskInput } from './create-task.js';
 export { RejectedInputError } from './errors.js';
 export { confirmOutcome } from './outcome.js';
 export { recordedAt } from './time.js';
+export { isEventRef, isTaskId } from '../store/refs.js';
+export { nextStepStatus, STEP_TRANSITIONS, type StepStatus, type StepTransition, type TransitionCommand } from './transitions.js';

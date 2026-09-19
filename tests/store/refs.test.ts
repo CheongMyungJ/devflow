@@ -1,8 +1,9 @@
 // artifact 참조와 Task 안의 ID(gate id 포함)의 문법 (src/store/refs.ts — 파일 구현체 밖, commands 가 import 할 수 있는 자리).
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { artifactRef, formatId, idNumber, isArtifactName, isCanonicalId, isGateId, parseArtifactRef } from '../../src/store/refs.js';
+import { TASK_DIR } from '../../src/store/file/names.mjs';
+import { artifactRef, formatId, idNumber, isArtifactName, isCanonicalId, isEventRef, isGateId, isTaskId, parseArtifactRef } from '../../src/store/refs.js';
 import { REPO_ROOT } from './paths.js';
 
 describe('artifact 참조의 문법', () => {
@@ -86,5 +87,85 @@ describe('gate id 와 Task 안의 ID 의 모양', () => {
     expect(layout).not.toMatch(/artifact:\\\/\\\//);
     expect(layout).not.toMatch(/PREFIX|padStart/);
     expect(layout).toContain("from '../refs.js'");
+  });
+});
+
+// T-0006 step-004 (G-002 B): Task id 의 모양은 refs.ts 한 곳. 파일 구현체의 Task 디렉터리 규칙과 같은 판단이다.
+describe('Task id 의 모양', () => {
+  const NAMES = ['T-0001', 'T-0006', 'T-1234', 'T-12345', 'T-012', 'T-12', 'T-1', 'T-', 't-0001', 'T-0001 ', ' T-0001', 'T-0001\n', 'T-00a1', 'T0001', 'T-0001/x', '../T-0001', 'C:\\T-0001', 'T-0001.yaml', 'X-0001', ''];
+
+  it.each(NAMES)('isTaskId 와 names.mjs 의 TASK_DIR 이 같게 판단한다: %j', (name) => {
+    expect(isTaskId(name)).toBe(TASK_DIR.test(name));
+  });
+
+  it('받는 것과 받지 않는 것이 둘 다 목록에 있다(대조가 한쪽으로 쏠리지 않았다)', () => {
+    expect(NAMES.filter(isTaskId)).toEqual(['T-0001', 'T-0006', 'T-1234', 'T-12345']);
+  });
+
+  it('refs.ts 안에서도 한 곳 — ARTIFACT_REF 는 TASK_ID 로 만든다(T-\d{4,} 의 사본이 없다)', () => {
+    const refs = readFileSync(join(REPO_ROOT, 'src', 'store', 'refs.ts'), 'utf8');
+    expect(refs.match(/T-\\d\{4,\}/g)).toHaveLength(1);
+    expect(parseArtifactRef('artifact://T-012/step-001/plan@v1')).toBeUndefined();
+  });
+
+  it('scripts/ 에 Task id 정규식의 사본이 없다 — 입구는 commands.isTaskId 를 쓴다', () => {
+    const dir = join(REPO_ROOT, 'scripts');
+    const offenders = readdirSync(dir, { recursive: true, encoding: 'utf8' })
+      .filter((name) => name.endsWith('.mjs') && !name.includes('check-store-read'))
+      .filter((name) => /T-\\d/.test(readFileSync(join(dir, name), 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+});
+
+// T-0006 F-003: 이벤트의 ref 로 받는 모양 — appendEvents 의 입력과 command 가 채운 ref 가 모두 이 함수를 지난다.
+describe('이벤트 ref 의 문법 (isEventRef)', () => {
+  it.each([
+    // 옛 기록이 쓰는 네 모양
+    'artifact://T-0005/step-001/store-design@v1',
+    'D-001',
+    'F-012',
+    'G-002',
+    // 이 Task 가 새로 쓰게 되는 ID
+    'R-009',
+    'step-004',
+    'R-1000',
+    'T-0006',
+  ])('받는다: %s', (ref) => {
+    expect(isEventRef(ref)).toBe(true);
+  });
+
+  it.each([
+    'C:\\x',
+    'C:/x',
+    'D:/data/T-0006/plan.md',
+    '\\\\server\\share',
+    '\\x',
+    '/home/me/x',
+    './R-001',
+    'runs/R-001.yaml',
+    'T-0006/step-001',
+    'artifact://T-0006/step-001/C:\\x@v1',
+    'G1',
+    'G-1',
+    'G-0012',
+    'R-12',
+    'step-1',
+    'step-0001',
+    'D-000',
+    'T-12',
+    '',
+    ' G-001',
+    'G-001 ',
+    'G-001\n',
+    'x',
+    'blob:T-0006/step-001/R-002.work-notes',
+    'gate://T-0006/step-001/G-001',
+  ])('받지 않는다: %j', (ref) => {
+    expect(isEventRef(ref)).toBe(false);
+  });
+
+  it('옛 기록(fixture 와 같은 모양)의 ref 는 네 모양뿐이라 모두 받는다', () => {
+    const olds = ['artifact://T-0001/step-001/plan@v2', 'D-003', 'F-007', 'G-004'];
+    expect(olds.every(isEventRef)).toBe(true);
   });
 });

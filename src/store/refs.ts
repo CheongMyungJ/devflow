@@ -4,6 +4,15 @@
 
 import type { IssuedIdKind } from './types.js';
 
+/**
+ * Task id 의 모양: T-<4자리 이상>(Task 스키마의 id pattern 과 같다). 이 모양의 기준은 여기 한 곳이다 — ARTIFACT_REF 도 이것으로 만들고,
+ * 입구는 command 쪽에서 isTaskId 를 받아 쓴다(scripts/ 에 사본을 두지 않는다). 파일 구현체의 Task 디렉터리 규칙(src/store/file/names.mjs 의
+ * TASK_DIR)과 같은 판단인지는 tests/store/refs.test.ts 가 같은 이름 목록으로 대 본다.
+ */
+const TASK_ID = String.raw`T-\d{4,}`;
+const TASK_ID_ONLY = new RegExp(`^${TASK_ID}$`);
+export const isTaskId = (id: string): boolean => TASK_ID_ONLY.test(id);
+
 const PREFIX: Record<IssuedIdKind, string> = { step: 'step', decision: 'D', feedback: 'F', run: 'R', gate_result: 'G' };
 
 /** 읽을 때 받는 모양: <접두어>-<숫자>. 번호를 돌려준다. 아니면 undefined. */
@@ -33,7 +42,7 @@ export const isArtifactName = (name: string): boolean => ARTIFACT_NAME.test(name
  * artifact://<task>/<step>/<name>@v<N>. 조각마다 모양이 정해져 있어 드라이브 문자(`C:`), 역슬래시, 빈 조각, `..` 같은 경로 조각은
  * 어느 자리에도 들어갈 수 없다. N 은 1 이상이고 앞에 0 이 없다.
  */
-const ARTIFACT_REF = /^artifact:\/\/(T-\d{4,})\/(step-\d+)\/([A-Za-z0-9][A-Za-z0-9._-]*)@v([1-9]\d*)$/;
+const ARTIFACT_REF = new RegExp(String.raw`^artifact://(${TASK_ID})/(step-\d+)/([A-Za-z0-9][A-Za-z0-9._-]*)@v([1-9]\d*)$`);
 
 export interface ParsedArtifactRef {
   taskId: string;
@@ -50,4 +59,17 @@ export function artifactRef(taskId: string, stepId: string, name: string, versio
 export function parseArtifactRef(ref: string): ParsedArtifactRef | undefined {
   const m = ARTIFACT_REF.exec(ref);
   return m ? { taskId: m[1]!, stepId: m[2]!, name: m[3]!, version: Number(m[4]) } : undefined;
+}
+
+/** 이벤트의 ref 로 받는 ID 의 kind — Store 가 발급하는 ID 전부. */
+const EVENT_REF_ID_KINDS: readonly IssuedIdKind[] = ['step', 'decision', 'feedback', 'gate_result', 'run'];
+
+/**
+ * 이벤트의 ref 로 받는 모양인가(T-0006 F-003, docs/design/commands.md 6.3). 받는 것은 셋뿐이다 —
+ * artifact 참조(parseArtifactRef 가 나누는 것), Store 가 발급하는 ID 의 정규형(step-NNN, D-NNN, F-NNN, G-NNN, R-NNN — isCanonicalId),
+ * Task id(isTaskId). 드라이브 문자·역슬래시·슬래시가 든 경로, 비정규 id('G1', 'R-12'), 빈 문자열, 앞뒤 공백은 어느 것에도 맞지 않는다.
+ * 모양만 본다 — 가리키는 것이 있는지는 부르는 쪽이 본다. appendEvents 의 입력과 command 가 채운 ref 가 모두 이 함수를 지난다.
+ */
+export function isEventRef(ref: string): boolean {
+  return parseArtifactRef(ref) !== undefined || isTaskId(ref) || EVENT_REF_ID_KINDS.some((kind) => isCanonicalId(kind, ref));
 }
