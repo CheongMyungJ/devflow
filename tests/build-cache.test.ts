@@ -1,13 +1,19 @@
 // scripts/lib/build.mjs — 입구의 빌드 캐시 (T-0006 step-002, docs/design/commands.md 6.5).
 // repo 의 소스를 고칠 수 없으므로 src/·tsconfig.json·package-lock.json 의 사본을 node_modules/.cache 아래(의존성과 schemas/ 를 위로 올라가며
 // 찾을 수 있는 자리)에 두고 그것을 빌드한다. 사본에는 생성 타입(src/types/generated)을 넣지 않는다 — 생성 타입 없이도 빌드되고 돌아야 한다.
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildKey, prepareBuild, TSC_ARGS } from '../scripts/lib/build.mjs';
 import { REPO_ROOT } from './store/paths.js';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return { ...fs, renameSync: vi.fn(fs.renameSync) };
+});
+afterEach(() => vi.mocked(renameSync).mockReset());
 
 const ROOT = mkdtempSync(join(REPO_ROOT, 'node_modules', '.cache', 'devflow-test-build-cache-'));
 const repo = join(ROOT, 'repo');
@@ -92,5 +98,53 @@ describe('입구의 빌드 캐시', () => {
     expect(() => prepareBuild({ repoRoot: repo, cacheDir })).toThrow();
     rmSync(current.dir, { recursive: true, force: true });
     expect(prepareBuild({ repoRoot: repo, cacheDir }).outcome).toBe('built');
+  });
+
+  it.each(['EPERM', 'EBUSY', 'EACCES'])('일시적 %s 뒤에는 완성된 빌드를 게시하고 다시 사용한다', (code) => {
+    const cache = join(ROOT, `transient-${code}`);
+    const rename = vi.mocked(renameSync);
+    const blocked = Object.assign(new Error('temporarily blocked'), { code });
+    rename.mockImplementationOnce(() => { throw blocked; });
+    const result = prepareBuild({ repoRoot: repo, cacheDir: cache });
+    expect(result.outcome).toBe('built');
+    expect(rename.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.parse(readFileSync(join(result.dir, 'stamp.json'), 'utf8')).key).toBe(result.key);
+    expect(readdirSync(cache).filter((name) => name.startsWith('.tmp-'))).toEqual([]);
+    expect(prepareBuild({ repoRoot: repo, cacheDir: cache }).outcome).toBe('reused');
+  });
+
+  it('영구 EPERM은 제한 시간 뒤 원래 오류로 실패하고 불완전한 빌드를 게시하지 않는다', () => {
+    const cache = join(ROOT, 'permanent-permission');
+    const blocked = Object.assign(new Error('permanently blocked'), { code: 'EPERM' });
+    const rename = vi.mocked(renameSync).mockImplementation(() => { throw blocked; });
+    expect(() => prepareBuild({ repoRoot: repo, cacheDir: cache })).toThrow(blocked);
+    expect(rename.mock.calls.length).toBeGreaterThan(1);
+    expect(readdirSync(cache)).toEqual([]);
+  });
+
+  it('재시도 중 같은 키의 빌드가 먼저 게시되면 그 빌드를 쓰고 자기 임시 폴더만 지운다', async () => {
+    const cache = join(ROOT, 'retry-race');
+    const fs = await vi.importActual<typeof import('node:fs')>('node:fs');
+    const blocked = Object.assign(new Error('temporarily blocked'), { code: 'EPERM' });
+    vi.mocked(renameSync)
+      .mockImplementationOnce(() => { throw blocked; })
+      .mockImplementationOnce((from, to) => {
+        fs.cpSync(String(from), String(to), { recursive: true }); // 다른 프로세스가 같은 완성본을 먼저 게시한 상태
+        throw blocked;
+      });
+    const result = prepareBuild({ repoRoot: repo, cacheDir: cache });
+    expect(result.outcome).toBe('raced');
+    expect(JSON.parse(readFileSync(join(result.dir, 'stamp.json'), 'utf8')).key).toBe(result.key);
+    expect(readdirSync(cache)).toEqual([result.key.slice(0, 32)]);
+    expect(prepareBuild({ repoRoot: repo, cacheDir: cache }).outcome).toBe('reused');
+  });
+
+  it('재시도 대상이 아닌 오류는 즉시 전파한다', () => {
+    const cache = join(ROOT, 'permanent-io');
+    const broken = Object.assign(new Error('I/O failed'), { code: 'EIO' });
+    const rename = vi.mocked(renameSync).mockImplementation(() => { throw broken; });
+    expect(() => prepareBuild({ repoRoot: repo, cacheDir: cache })).toThrow(broken);
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(readdirSync(cache)).toEqual([]);
   });
 });
