@@ -65,7 +65,7 @@ describe('구조 제약 — scripts/', () => {
   /** 파일 구현체의 이름 규칙 모듈만 import 한다(빌드 없이 돈다 — src/store/file/names.mjs). */
   const RULE_USERS = ['scripts/validate-data.mjs'];
   /** Store 로 쓰는 입구. 조립 지점에서 command 를 받아 command 만 부른다. */
-  const ENTRIES = ['append-events', 'submit-run', 'complete-run', 'fail-run', 'record-gate'].map((name) => `scripts/${name}.mjs`);
+  const ENTRIES = ['append-events', 'submit-run', 'complete-run', 'fail-run', 'record-gate', 'propose-step', 'define-step', 'request-revision', 'approve-step', 'add-feedback'].map((name) => `scripts/${name}.mjs`);
   /** 입구가 함께 쓰는 인자 해석·파일 읽기·보고. 데이터 디렉터리에 쓰지 않고 Store 를 모른다. */
   const CLI = 'scripts/lib/cli.mjs';
 

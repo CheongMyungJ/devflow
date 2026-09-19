@@ -93,6 +93,13 @@ export function committed(result) {
   return `seq ${seqs[0]}..${seqs.at(-1)}, commit ${result.commitId}`;
 }
 
+/** 사람의 말: --text <문장> 또는 --text-file <파일> 가운데 하나(여러 줄이면 파일). */
+export const TEXT_OPTIONS = { text: { value: true }, 'text-file': { value: true } };
+export function textFrom(opts, usage) {
+  if ((opts.text === undefined) === (opts['text-file'] === undefined)) usageExit(usage, '--text 와 --text-file 가운데 하나를 준다');
+  return opts.text ?? readText(opts['text-file'], '--text-file');
+}
+
 /** command 를 부르고 결과나 거부를 보인다. 거부·Store 오류는 exit 1. */
 export async function report(work) {
   try {
