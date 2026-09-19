@@ -213,6 +213,7 @@ describe('I/O 오류가 났을 때 commit() 의 결과 (2.4 의 단계별 실패
     const error = await store.commit(task.id, { events: [noteEvent('unknown')] }).catch((e) => e);
     expect(error).toBeInstanceOf(CommitOutcomeUnknownError);
     expect(error.firstSeq).toBe(2);
+    expect(error.commitId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     // 다음 접근에서 일관되게 복구된다. 호출자는 readEvents 로 성립 여부를 확인한다
     expect((await newStore(dataDir).readEvents(task.id)).length).toBe(1);
   });

@@ -62,9 +62,24 @@ export class CommitOutcomeUnknownError extends StoreError {
     readonly taskId: string,
     /** 반영되었다면 이 변경의 첫 이벤트가 받았을 seq. */
     readonly firstSeq: number,
+    /** 이 commit 의 식별자. 반영되었다면 그 이벤트들의 commit_id 다 — 확인할 때 이것을 찾는다 (docs/design/commands.md 3절). */
+    readonly commitId: string,
     options?: ErrorOptions,
   ) {
-    super(`commit outcome unknown on ${taskId} (first seq ${firstSeq})`, options);
+    super(`commit outcome unknown on ${taskId} (first seq ${firstSeq}, commit ${commitId})`, options);
+  }
+}
+
+/**
+ * 불변인 기록(decision, gate_result, artifact, blob)이 이미 있거나, Task 안의 ID 가 다른 자리에서 이미 쓰였다.
+ * 아무것도 기록되지 않았다. 결과를 모른 채 다시 보낸 쓰기라면 "이미 있다" 가 곧 원하던 상태일 수 있다 — get 으로 확인한다.
+ */
+export class AlreadyExistsError extends StoreError {
+  constructor(
+    /** 어떤 기록인지 사람이 읽을 수 있는 식별자. 저장 위치가 아니다. */
+    readonly subject: string,
+  ) {
+    super(`already exists: ${subject}`);
   }
 }
 

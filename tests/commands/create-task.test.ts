@@ -14,6 +14,7 @@ const input: CreateTaskInput = {
   target: { repo: 'shop', base_branch: 'main', scope_hint: ['src/order/'] },
 };
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const fixedClock = { now: () => new Date('2026-09-18T01:02:03.000Z') };
 const context = (store: Store, overrides: Partial<CommandContext> = {}): CommandContext => ({ store, clock: fixedClock, actor: 'human:tester', ...overrides });
 
@@ -31,7 +32,7 @@ describe('commands.createTask (AC6)', () => {
     });
     expect(await getTask({ store }, 'T-0001')).toEqual(task);
     expect(await store.readEvents('T-0001')).toEqual([
-      { seq: 1, task_id: 'T-0001', type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03.000Z', system_sha: 'abc123' },
+      { seq: 1, task_id: 'T-0001', commit_id: expect.stringMatching(UUID), type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03.000Z', system_sha: 'abc123' },
     ]);
   });
 
@@ -100,23 +101,24 @@ describe('commands.createTask (AC6)', () => {
   });
 });
 
-describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 (docs/design/commands.md 3절)', () => {
-  /** createTask 가 build 를 부른 뒤 CommitOutcomeUnknownError 를 던지는 가짜 Store. landed 가 그 뒤 readEvents 가 돌려줄 내용이다. */
-  function unknownOutcomeStore(
-    landed: (sent: { task: Task; events: NewEvent[] }) => Event[] | Error,
-    storedTask: (sent: Task) => Task | undefined | Error = (task) => task,
-  ): Store {
-    let sent: { task: Task; events: NewEvent[] } | undefined;
+describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 — commit 식별자로 판정한다 (docs/design/commands.md 3절, T-0005 AC3)', () => {
+  const MINE = '3f2b8c1e-0a4d-4e5f-9b6a-7c8d9e0f1a2b';
+  const OTHER = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
+  type Sent = { task: Task; events: NewEvent[] };
+
+  /**
+   * createTask 가 build 를 부른 뒤 CommitOutcomeUnknownError(commitId = MINE)를 던지는 가짜 Store. landed 가 그 뒤 readEvents 가 돌려줄 내용이다.
+   * 저장된 Task 를 다시 읽어 비교하던 T-0001 의 확인은 없어졌다 — get 이 불리면 테스트가 실패한다.
+   */
+  function unknownOutcomeStore(landed: (sent: Sent) => Event[] | Error): Store {
+    let sent: Sent | undefined;
     return {
-      get: async (_kind: string, key: { taskId: string }) => {
-        expect(key).toEqual({ taskId: 'T-0007' });
-        const result = storedTask(sent!.task);
-        if (result instanceof Error) throw result;
-        return result;
+      get: async () => {
+        throw new Error('createTask 의 확인은 저장된 Task 를 읽지 않는다');
       },
       createTask: async (build: (id: string) => { task: Task; events: [NewEvent, ...NewEvent[]] }) => {
         sent = build('T-0007');
-        throw new CommitOutcomeUnknownError('T-0007', 1);
+        throw new CommitOutcomeUnknownError('T-0007', 1, MINE);
       },
       readEvents: async (taskId: string, options?: { afterSeq?: number }) => {
         expect(taskId).toBe('T-0007');
@@ -127,45 +129,57 @@ describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 (docs/
       },
     } as unknown as Store;
   }
+  /** 보낸 이벤트가 seq 1 부터 기록된 모양. commitId 가 없으면 식별자가 없는 옛 이벤트다. */
+  const recorded = (sent: Sent, commitId: string | undefined, overrides: Partial<Event> = {}): Event[] =>
+    sent.events.map((e, i) => ({ seq: 1 + i, task_id: 'T-0007', ...(commitId ? { commit_id: commitId } : {}), ...e, ...overrides }) as Event);
 
-  it('보낸 이벤트가 그 자리에 그대로 있으면 성립한 것이다 → Task 를 돌려준다', async () => {
-    const store = unknownOutcomeStore((sent) => sent.events.map((e, i) => ({ ...e, seq: 1 + i, task_id: 'T-0007' }) as Event));
-    const task = await createTask(context(store), input);
+  it('자기 식별자의 이벤트가 그 자리에 그대로 있으면 성립한 것이다 → 보낸 Task 를 돌려준다', async () => {
+    const task = await createTask(context(unknownOutcomeStore((sent) => recorded(sent, MINE))), input);
     expect(task.id).toBe('T-0007');
     expect(task.target.task_branch).toBe('task/T-0007');
   });
 
-  it('Task 가 없으면 성립하지 않은 것이다 → 기록 안 됨을 뜻하는 StoreUnavailableError (원래 오류가 cause)', async () => {
-    const store = unknownOutcomeStore(() => new TaskNotFoundError('T-0007'));
+  it('같은 자리에 내용이 같은 다른 commit 의 이벤트가 있으면 성립하지 않은 것이다 (실패한 발행의 ID 가 다시 발급되고 같은 행위자·같은 시각)', async () => {
+    let seen: Event[] = [];
+    const store = unknownOutcomeStore((sent) => (seen = recorded(sent, OTHER)));
     const error = await createTask(context(store), input).catch((e) => e);
     expect(error).toBeInstanceOf(StoreUnavailableError);
     expect(error.cause).toBeInstanceOf(CommitOutcomeUnknownError);
+    // 그 자리의 이벤트는 식별자만 다르고 나머지는 보낸 것과 같았다 — T-0001 의 내용 비교라면 성립으로 판정했을 상황이다
+    const { commit_id, seq, task_id, ...content } = seen[0]!;
+    expect(commit_id).toBe(OTHER);
+    expect(content).toEqual({ type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03.000Z' });
   });
 
-  it('그 자리에 다른 내용이 있으면 자기 것으로 오인하지 않는다', async () => {
-    const other = (overrides: Partial<Event>) => (sent: { events: NewEvent[] }) => [{ ...sent.events[0]!, seq: 1, task_id: 'T-0007', ...overrides } as Event];
-    for (const landed of [other({ actor: 'human:someone-else' }), other({ at: '2026-01-01T00:00:00.000Z' }), other({ seq: 2 }), other({ data: { extra: true } })]) {
-      await expect(createTask(context(unknownOutcomeStore(landed)), input)).rejects.toBeInstanceOf(StoreUnavailableError);
-    }
+  it('식별자가 없는 옛 이벤트는 내용이 같아도 자기 것이 아니다', async () => {
+    const error = await createTask(context(unknownOutcomeStore((sent) => recorded(sent, undefined))), input).catch((e) => e);
+    expect(error).toBeInstanceOf(StoreUnavailableError);
   });
 
-  it('이벤트는 같아도 저장된 Task 가 보낸 것과 다르면 남의 발행이다 (같은 ID 가 다시 발급되고 같은 행위자·같은 시각인 경우)', async () => {
-    const sameEvent = (sent: { events: NewEvent[] }) => [{ ...sent.events[0]!, seq: 1, task_id: 'T-0007' } as Event];
-    const someoneElses = unknownOutcomeStore(sameEvent, (task) => ({ ...task, title: '다른 사람이 발행한 Task' }));
-    const error = await createTask(context(someoneElses), input).catch((e) => e);
+  it('Task 가 없으면 성립하지 않은 것이다 → 기록 안 됨을 뜻하는 StoreUnavailableError (원래 오류가 cause)', async () => {
+    const error = await createTask(context(unknownOutcomeStore(() => new TaskNotFoundError('T-0007'))), input).catch((e) => e);
     expect(error).toBeInstanceOf(StoreUnavailableError);
     expect(error.cause).toBeInstanceOf(CommitOutcomeUnknownError);
+  });
 
-    const missing = unknownOutcomeStore(sameEvent, () => undefined);
-    await expect(createTask(context(missing), input)).rejects.toBeInstanceOf(StoreUnavailableError);
+  it('자기 식별자의 이벤트가 있는데 내용·자리·개수가 어긋나면 Store 의 계약이 깨진 것이다 → SchemaViolationError(read)', async () => {
+    const broken: Array<(sent: Sent) => Event[]> = [
+      (sent) => recorded(sent, MINE, { actor: 'human:someone-else' }), // 내용이 다르다
+      (sent) => recorded(sent, MINE, { seq: 2 }), // 자리가 어긋난다
+      (sent) => [...recorded(sent, MINE), { ...recorded(sent, MINE)[0]!, seq: 2 }], // 보낸 것보다 많다
+    ];
+    for (const landed of broken) {
+      const error = await createTask(context(unknownOutcomeStore(landed)), input).catch((e) => e);
+      expect(error).toBeInstanceOf(SchemaViolationError);
+      expect(error.phase).toBe('read');
+      expect(error.subject).toBe(`commit ${MINE} on T-0007`);
+    }
   });
 
   it('확인조차 할 수 없으면 여전히 알 수 없는 것이다 → 원래의 CommitOutcomeUnknownError', async () => {
     const eventsUnreadable = unknownOutcomeStore(() => new StoreUnavailableError('disk gone'));
-    await expect(createTask(context(eventsUnreadable), input)).rejects.toBeInstanceOf(CommitOutcomeUnknownError);
-
-    const sameEvent = (sent: { events: NewEvent[] }) => [{ ...sent.events[0]!, seq: 1, task_id: 'T-0007' } as Event];
-    const taskUnreadable = unknownOutcomeStore(sameEvent, () => new StoreUnavailableError('disk gone'));
-    await expect(createTask(context(taskUnreadable), input)).rejects.toBeInstanceOf(CommitOutcomeUnknownError);
+    const error = await createTask(context(eventsUnreadable), input).catch((e) => e);
+    expect(error).toBeInstanceOf(CommitOutcomeUnknownError);
+    expect(error.commitId).toBe(MINE);
   });
 });
