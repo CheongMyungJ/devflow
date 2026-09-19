@@ -8,6 +8,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { type SchemaName, validateAgainst } from '../../schema/validator.js';
 import type { ArtifactVersion, Event, Task } from '../../types/generated/index.js';
 import { blobRef, parseBlobRef } from '../blob-ref.js';
+import { artifactRef, formatId, idNumber, isArtifactName, isCanonicalId, parseArtifactRef } from '../refs.js';
 import {
   AlreadyExistsError,
   CommitOutcomeUnknownError,
@@ -37,20 +38,7 @@ import type {
   Store,
 } from '../types.js';
 import { codeOf, type FileOps, nodeFileOps, retryTransient, sleep } from './fs-ops.js';
-import {
-  artifactRef,
-  blobRelPath,
-  formatId,
-  idNumber,
-  isArtifactName,
-  isCanonicalId,
-  issuedNumberOf,
-  type Loc,
-  locOfRel,
-  parseArtifactRef,
-  relOfLoc,
-  TASK_DIR,
-} from './layout.js';
+import { blobRelPath, issuedNumberOf, type Loc, locOfRel, relOfLoc, TASK_DIR } from './layout.js';
 import { LockManager } from './lock.js';
 
 export interface FileStoreOptions {
