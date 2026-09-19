@@ -69,6 +69,26 @@ export function snapshot(dir: string): Record<string, number> {
   return out;
 }
 
+/**
+ * 디렉터리 아래의 모든 항목(디렉터리 포함, .locks 등 숨은 것도)과 파일의 내용. "아무것도 쓰기 전에 거부했다" 를 확인하는 데 쓴다 —
+ * snapshot 과 달리 lock 도, 내용이 같은 크기로 바뀐 것도 잡는다.
+ */
+export function contentSnapshot(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (d: string) => {
+    for (const name of readdirSync(d)) {
+      const p = join(d, name);
+      const rel = relative(dir, p).replaceAll('\\', '/');
+      if (statSync(p).isDirectory()) {
+        out[`${rel}/`] = '';
+        walk(p);
+      } else out[rel] = readFileSync(p, 'base64');
+    }
+  };
+  walk(dir);
+  return out;
+}
+
 export const readText = (path: string) => readFileSync(path, 'utf8');
 
 export type CrashPoint = 'during-pending' | 'after-pending' | 'torn-append' | 'partial-append' | 'after-append';
