@@ -2,9 +2,9 @@
 
 각 단계는 "넘어가는 기준" 을 충족했을 때만 다음으로 간다. 기준 충족 여부는 `retro/` 의 기록으로 판단한다.
 
-## 0단계 — 수동 운영 (도구 없음)
+## 0단계 — 수동 조율 (기록 명령은 T-0006에서 구현)
 
-사람이 Orchestrator 역할을 직접 한다. 시스템 구현 작업 자체를 Task 로 정의하고, Step yaml 을 직접(또는 AI 에게 Planner 역할로) 작성해 Claude Code 세션에서 하나씩 실행한다. 결과는 `devflow-data` 에 손으로 저장한다.
+사람과 Orchestrator 대화 세션이 흐름을 조율하고 Planner·Worker·Reviewer를 별도 세션으로 실행한다. T-0006까지 기록은 손으로 썼고, 다음 Task부터는 Store 위의 운영 명령이 엔티티·상태·이벤트를 함께 쓴다. Ledger와 세션 실행·판단 연결·git commit은 아직 수동이다.
 
 목적: 스키마의 과부족과 Context 패킷에 실제로 필요한 내용을 가장 빨리 찾는다.
 
@@ -13,8 +13,13 @@
 - [x] 구현 언어/런타임 결정 — TypeScript + Node LTS (ADR-0009)
 - [x] 프로젝트 골격: 스키마 → 타입 생성, Runner 인터페이스
 - [ ] 스키마 초안을 실제 Task 1~2개에 적용해 보고 수정 — T-0001 에 적용해 과부족을 찾았다(F1~F12 는 `design/store.md` 5절, 그 뒤의 것은 `retro/T-0001.md` 와 `devflow-data` 의 backlog). 수정의 첫 묶음(역할 세션 사이를 오가는 것 — Gate 의 지적 구조화, annotations, Run 의 수행 주체, packet_gaps, inputs 의 문법)은 T-0003 에서 했다(ADR-0012). 둘째 묶음(Task 양식의 의도의 칸과 두 단계 Intake)은 T-0004 에서 했다(ADR-0013, 0014). 셋째 묶음(생성 타입의 배열, next_step.step 검사, F6·F9·F12, Artifact meta 검사, 스키마 로더 하나)은 T-0005 에서 했다(ADR-0015, 0016). 나머지는 backlog 2번에 남아 있다
-- [x] Store 인터페이스 + 파일 구현체 — T-0001 (Task 와 Event), T-0005 (Step, Decision, Feedback, GateResult, Run, Artifact, blob, Task 안의 ID 발급, 덮어쓰기 방지, commit 식별자 — ADR-0015. 0단계의 기록은 아직 손으로 쓴다)
+- [x] Store 인터페이스 + 파일 구현체 — T-0001 (Task 와 Event), T-0005 (Step, Decision, Feedback, GateResult, Run, Artifact, blob, Task 안의 ID 발급, 덮어쓰기 방지, commit 식별자 — ADR-0015)
 - [x] commands / queries 최소 집합 — T-0001 (`createTask`, `getTask`, `listTasks`)
+- [x] 0단계 기록을 Store·commands 위로 — T-0006 (Task 발행·Step 한 바퀴·done, 입구 입력 검사, validator·Store 이름 규칙, ADR-0017). Ledger 자동 작성은 제외
+
+**T-0006 종료 시점:** 수동 Task는 T-0001~T-0006의 6개다. T-0006은 실행 Step 4개·재작업 2회·역할 출력 18개 모두 첫 수용이었다. merge 뒤 Windows 빌드 캐시 EPERM은 사람 지시로 Codex가 직접 보완하고 594 tests를 통과했다(`retro/T-0006.md`). 스키마 수정은 범위 밖이었고 stored_in·참조·Feedback 전달 등 후속이 남아 있으므로, 변경이 없었다는 이유만으로 안정화·1단계 진입을 선언하지 않는다. 다음 후보는 Workspace 최소 기능이며 단계 전환과 범위는 다음 Intake에서 정한다.
+
+아래는 T-0005까지의 판단 경과다.
 
 수동으로 끝까지 수행한 Task: T-0001, T-0002, T-0003, T-0004, T-0005 (5 / 2~3). T-0005 는 새 Task 양식의 첫 Task 이고 Step 넷·재작업 0·역할 출력 13개가 모두 한 번에 받아들여졌다(`retro/T-0005.md`). 스키마 변경은 T-0005 에서도 있었으나 이번에는 새 과부족이 스키마보다 운영(Feedback 을 가리킬 자리, "다음 Step 에서 반드시" 의 자리)과 1단계 설계(검토 요청의 형식, approval 정책)에서 나왔다. T-0002 부터 Planner·Worker·Reviewer 를 모두 Context 패킷만 받은 별도 세션으로 실행한다. T-0003 은 코드 변경이 있고 여러 Step 에 걸친 Task 에서 그 분리가 성립함을 확인했다(`retro/T-0003.md`). **스키마 변경은 시작되었고 아직 잦아들지 않았다** — T-0003 이 스키마를 바꾸면서 새 과부족이 또 나왔고(backlog 2번), Intake·Task 양식의 변경을 T-0004 에서 했다(재작업 0, 역할 세션의 출력 일곱이 모두 한 번에 받아들여졌다, Orchestrator 대화 세션의 교체도 기록만으로 성립 — `retro/T-0004.md`). T-0004 에서도 스키마의 새 과부족이 나왔다(의도의 칸의 사후 검사, 생성 타입의 AC). 넘어가는 기준의 앞쪽(Task 2~3개)은 찼고 뒤쪽(스키마 변경이 잦아들었다)은 아니다.
 
