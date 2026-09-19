@@ -1,6 +1,6 @@
 # State Store 설계
 
-- 인터페이스: `src/store/types.ts`, 오류: `src/store/errors.ts`, blob key 의 문법: `src/store/blob-ref.ts`. 파일 구현체: `src/store/file/`(파일 이름 규칙은 `layout.ts`)
+- 인터페이스: `src/store/types.ts`, 오류: `src/store/errors.ts`, blob key 의 문법: `src/store/blob-ref.ts`, ID·artifact 참조의 문법: `src/store/refs.ts`. 파일 구현체: `src/store/file/`(파일 이름 규칙은 `layout.ts`, 디렉터리·기록 파일 이름의 정규식은 `names.mjs`)
 - 대상: T-0001 (Task + 이벤트). 나머지 엔티티(Step, Decision, Feedback, GateResult, Run, Artifact)와 blob, Task 안의 ID 발급, 덮어쓰기 방지, commit 식별자는 T-0005 에서 설계하고 구현했다(3절). 구조를 바꾼 결정과 그 이유는 ADR-0011, ADR-0015, ADR-0016.
 
 ## 0. 핵심 결정
@@ -77,7 +77,7 @@
 - 엔티티는 YAML, 이벤트는 JSON Lines. 줄바꿈은 항상 LF, 인코딩은 UTF-8.
 - `dataDir` 은 구현체 생성자 인자다. 인터페이스에는 나타나지 않는다.
 - "Task 가 존재한다" 의 정의: `events.jsonl` 에 seq 1 이 있다. 디렉터리만 있고 이벤트가 없는 것은 버려진 ID 다.
-- `.locks/`, `.pending-*/`, `.rollbacks` 를 `devflow-data/.gitignore` 에 추가해야 한다. `devflow-data` 는 다른 repo 이므로 이 구현체를 만든 Task(T-0001)의 범위 밖이고, 후속 작업으로 남겼다(5절 F8).
+- `.locks/`, `.pending-*/`, `.rollbacks` 는 기록이 아니다. `devflow-data/.gitignore` 에 이 세 줄이 있어 어느 깊이에 생겨도 git 에 잡히지 않는다(5절 F8). 이름은 `src/store/file/names.mjs`(`LOCKS_DIR`, `PENDING_PREFIX`, `ROLLBACKS_FILE`) 한 곳에 있다. 내부 파일이 실제로 있는 상태에서 `git status` 에 기록 파일만 보이는지는 `.gitignore` 사본으로 `tests/task-flow.test.ts` 가, 실제 checkout 의 `.gitignore` 가 그 이름들을 가리는지는 `npm run check-gitignore -- <data-dir>` 가 확인한다(T-0006 AC7 — 부정 규칙이나 사용자 설정·`.git/info/exclude` 에만 있는 규칙으로 가려진 것은 통과로 치지 않는다).
 
 ### 2.2 Lock
 
@@ -345,7 +345,7 @@ blob:<taskId>/<owner>.<name>              Task 수준 (Run 만)
 - **모양**: UUID 의 소문자 문자열(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`). 파일 구현체는 `crypto.randomUUID()`(버전 4, 난수 122비트)로 만든다. 여러 프로세스가 조율 없이 만들어도 겹치지 않고, 시각·호스트·경로를 담지 않는다. Store 는 시계를 읽지 않으므로(1절) 시각이 들어가는 형식(UUID v7, ULID)은 쓰지 않는다. 패턴은 버전을 고정하지 않아 DB 구현체가 자기 방식의 UUID 를 쓸 수 있다.
 - **부여**: `commit()` 과 `createTask()` 의 호출마다 Store 가 하나를 만들어 그 commit 의 모든 이벤트에 같은 값을 넣는다. 구현체가 안에서 재시도해 `ChangeInput` 을 다시 부르더라도 한 호출의 값은 같아야 한다 — 재시도하는 구현은 식별자를 재시도 루프 밖에서 만든다(`src/store/types.ts` 의 `ChangeInput` 주석. 파일 구현체는 재시도하지 않고 lock 을 잡기 전에 만든다 — 3.11). 호출자는 주지 않는다 — `NewEvent` 에서 `commit_id` 를 뺐다. 타입을 우회해 이벤트에 `commit_id` 를 담아 보내면 `InvalidChangeError`.
 - **보이는 곳**: `CommitResult.commitId`, `CommitOutcomeUnknownError.commitId`, 기록된 이벤트의 `commit_id`. `createTask` 의 반환 타입은 바꾸지 않는다(시그니처 유지) — 돌려주는 `events[].commit_id` 에 있다.
-- **옛 이벤트와의 공존**: 확인하는 쪽은 언제나 자기 commit 의 새 식별자를 찾는다. 식별자가 없는 이벤트는 어떤 식별자와도 같지 않으므로 "내 것이 아니다" 로 읽히고, 따로 가르는 장치가 없다. 0단계의 운영 스크립트(append-events)는 `commit_id` 를 쓰지 않으므로 merge 뒤에도 그 스크립트가 쓴 이벤트는 식별자가 없다.
+- **옛 이벤트와의 공존**: 확인하는 쪽은 언제나 자기 commit 의 새 식별자를 찾는다. 식별자가 없는 이벤트는 어떤 식별자와도 같지 않으므로 "내 것이 아니다" 로 읽히고, 따로 가르는 장치가 없다. T-0006 전의 0단계 운영 스크립트(append-events, propose-step, record-gate)는 Store 를 거치지 않고 `commit_id` 를 쓰지 않았으므로 그것들이 쓴 이벤트는 식별자가 없다. T-0006 부터 `append-events` 는 Store 의 commit 으로 쓰므로(`commands.appendEvents` — commands.md 6절) 식별자가 붙고, step-004 부터는 Step 한 바퀴의 입구(`submit-run`, `complete-run`, `fail-run`, `record-gate`, `propose-step`, `define-step`, `request-revision`, `approve-step`, `add-feedback`)도 command 로 써서 같다. step-005 부터는 Task 발행(`issue-task`)과 done(`complete-task`)의 입구도 그렇다 — 새 입구로 쓴 Task 는 `task.created` 부터 모든 이벤트에 식별자가 있다.
 - **`.pending` 의 token 과의 관계**: 별개다. token 은 lock 획득마다의 난수로 파일 구현체 안의 개념이다(읽기가 잡는 lock 에도 있고 DB 구현체에는 없다). `commit_id` 는 인터페이스의 개념이다. `.pending-<token>/` 의 이름과 `commit.json` 의 모양은 그대로이고, `lines` 에 `commit_id` 가 들어 있으므로 2.5 의 내용 대조가 식별자까지 대조한다 — 같은 내용의 다른 commit 의 꼬리를 자기 것으로 오인할 여지가 줄어든다. 이벤트 줄의 필드 순서는 `seq`, `task_id`, `commit_id`, 나머지.
 - 결과를 알 수 없는 commit 의 확인 절차는 `docs/design/commands.md` 3절.
 
@@ -495,13 +495,13 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 - **`project` 등록부, 전역 설정**: Task 에 속하지 않으므로 별도의 작은 인터페이스로 둔다.
 - **data repo 자동 commit**(ADR-0007): Store 의 책임이 아니라 commit 성공 후 호출되는 별도 구성 요소다. 파일 구현체 생성자에 `onCommitted(taskId, events)` 훅을 두면 된다.
 - **Ledger**(`ledger.md`)를 Store 로 옮기는 것.
-- 0단계의 운영 스크립트와 기록 방식을 Store 위로 옮기는 것.
+- 0단계의 운영 스크립트와 기록 방식을 Store 위로 옮기는 것 — T-0005 의 범위 밖이었고 T-0006 이 하고 있다(commands.md 6절).
 
 ### 3.11 구현에서 정한 것 (T-0005 step-003, step-004)
 
 3.1~3.7 을 구현하며 설계가 말하지 않은 것을 정했다. 근거와 버린 대안은 그 Step 의 작업 노트에 있다.
 
-- **규칙을 둔 곳.** blob key 의 문법은 `src/store/blob-ref.ts` 의 `parseBlobRef`(와 그것으로 만드는 `blobRef`) 하나이고, artifact 스키마의 `$defs/blobKey` pattern 과 같은 key 를 받는지는 `tests/store/blob-key.test.ts` 가 같은 key 목록으로 확인한다. 파일 이름 규칙 — 쓰기가 놓는 자리, `list` 가 kind 로 읽는 이름, `nextId` 가 세는 이름, blob key → 파일과 그 역 — 은 `src/store/file/layout.ts` 한 곳이다. `scripts/validate-data.mjs` 는 같은 이름 규칙을 따로 적고(스크립트는 빌드 없이 돈다), 둘이 같은 파일을 읽는지는 `tests/store/list-rules.test.ts` 가 같은 디렉터리에 둘을 대 보아 확인한다. `scripts/check-store-read.mjs` 도 기대값을 세려고 같은 규칙의 사본을 둔다(Store 의 `layout.ts` 로 세면 Store 가 자기 규칙으로 자기를 확인하게 된다) — 이 사본에는 list-rules 같은 대조 테스트가 없다. **규칙이 바뀔 때는 세 곳 — `layout.ts`, `validate-data.mjs`, `check-store-read.mjs` — 을 함께 고친다.** (Task·Step 디렉터리의 이름 규칙은 아직 validate-data 와 Store 가 다르다 — validate-data 는 `T-<숫자>` 와 `steps/` 의 모든 항목, Store 는 `T-<4자리 이상>` 과 `step-<숫자>` 만. 지금 기록에는 걸리는 이름이 없다. 맞추는 것은 후속 Task 의 몫이다.)
+- **규칙을 둔 곳.** blob key 의 문법은 `src/store/blob-ref.ts` 의 `parseBlobRef`(와 그것으로 만드는 `blobRef`) 하나이고, artifact 스키마의 `$defs/blobKey` pattern 과 같은 key 를 받는지는 `tests/store/blob-key.test.ts` 가 같은 key 목록으로 확인한다. 파일 이름 규칙 — 쓰기가 놓는 자리, `list` 가 kind 로 읽는 이름, `nextId` 가 세는 이름, blob key → 파일과 그 역 — 은 `src/store/file/layout.ts` 한 곳이다. 그 가운데 디렉터리와 기록 파일 이름의 정규식(Task 디렉터리 `T-<4자리 이상>`, Step 디렉터리 — `steps/` 아래의 디렉터리 가운데 `step-<숫자>`, `D-/F-/R-/G-<숫자>.yaml`, `v<N>.meta.yaml`)은 `src/store/file/names.mjs`(+ 선언 `names.d.mts`)에 있고, `layout.ts` 와 `scripts/validate-data.mjs` 가 같은 모듈을 import 한다(스크립트는 빌드 없이 돈다 — T-0006 step-002, 그 전에는 validate-data 가 사본을 두었고 Task·Step 디렉터리의 규칙이 Store 와 달랐다). 둘이 같은 파일을 읽는지는 `tests/store/list-rules.test.ts`, 같은 디렉터리를 가리는지는 `tests/store/dir-rules.test.ts` 가 확인한다. `scripts/check-store-read.mjs` 는 기대값을 세려고 일부러 규칙의 사본을 둔다(Store 의 규칙으로 세면 Store 가 자기 규칙으로 자기를 확인하게 된다) — 사본과 Store 의 판단이 같은지는 `tests/store/dir-rules.test.ts` 가 규칙이 달랐던 이름(`T-12`, `steps/draft/`, `steps/` 의 일반 파일)에서 대 본다. **규칙이 바뀔 때는 두 곳 — `names.mjs`(또는 `layout.ts`)와 `check-store-read.mjs` — 을 함께 고친다.** ID 와 artifact 참조의 문법(`idNumber`, `isCanonicalId`, `formatId`, `isGateId`, `parseArtifactRef`, `artifactRef`, `isArtifactName`)은 파일 위치를 모르므로 파일 구현체 밖의 `src/store/refs.ts` 에 있고 `layout.ts`·`file-store.ts` 와 commands 가 함께 쓴다(T-0006 step-002 에서 `layout.ts` 로부터 옮겼다 — 사본이 없다). Task id 의 모양(`isTaskId`)과 이벤트 ref 의 문법(`isEventRef`)도 같은 모듈이다(T-0006 step-004). Task id 의 모양은 `names.mjs` 의 `TASK_DIR` 과 같은 판단이어야 하고 `tests/store/refs.test.ts` 가 같은 이름 목록으로 대 본다 — **Task id 의 모양을 바꿀 때는 `refs.ts`·`names.mjs`·`check-store-read.mjs` 를 함께 고친다.**
 - **ID 의 모양은 쓸 때와 읽을 때가 다르다.** 쓸 때는 3.1 의 모양 그대로(3자리 0 채움, 999 를 넘으면 자릿수가 늘어난다 — `R-12`, `R-0012`, `R-000` 은 `InvalidChangeError`). 읽을 때(`list` 가 읽는 파일 이름, `get` 의 key)는 `<접두어>-<숫자>`(`R-\d+.yaml` 등, validate-data 와 같다)를 받는다 — 모양이 어긋난 파일을 조용히 건너뛰지 않고 읽어서, 스키마나 아래의 자리 확인에 걸리면 `invalid` 로 드러낸다. Step 디렉터리는 `step-<숫자>`. 모양이 맞지 않는 key 의 `get` 은 디스크를 보지 않고 `undefined` 다.
 - **읽을 때 값이 그 자리의 것인지 확인한다.** 파일의 ID·`task_id`·`step_id`(수준)·Artifact 의 `ref` 가 그 파일의 자리와 다르면 `SchemaViolationError(read)`(`list` 에서는 `invalid`). 쓰기는 값으로 자리를 정하므로 Store 가 쓴 파일은 언제나 맞는다. 사람이 파일을 복사·이동한 경우를 드러내기 위한 것이다. 이 확인은 Task 에도 걸린다 — `task.yaml` 의 `id` 가 디렉터리 이름과 다르면 `get('task')` 는 `SchemaViolationError(read)`, `list('task')` 에서는 `invalid` 다. T-0005 전에는 통과하던 상태이므로 **기존 동작보다 조금 엄격해졌다**(사람이 Task 디렉터리를 복사해 이름을 바꾼 경우가 걸린다). 기존 기록 T-0001~T-0005 는 모두 맞는다.
 - **한 Change 안에서** 같은 key 를 두 번 쓰는 것에 더해 같은 ID 를 다른 자리에 두 번 쓰는 것(예: Step 수준과 Task 수준의 R-005)도 `InvalidChangeError` 다(디스크와 부딪치는 것만 `AlreadyExistsError`). 알 수 없는 kind 도 `InvalidChangeError`.
@@ -513,7 +513,7 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 - **`nextArtifactVersion` 은 이름을 철자 그대로 센다.** `plan@v1` 이 있을 때 `nextArtifactVersion(step, 'Plan')` 은 1 이고, 그 버전을 쓰는 commit 은 위의 규칙으로 `AlreadyExistsError` 다. 접어서 세면 2 를 주지만 `Plan@v2` 도 같은 디렉터리라 거부되므로 얻는 것이 없고, `Plan` 을 `plan` 의 다음 버전처럼 보이게 한다. 거부는 쓰기 계획 한 곳에서 한다.
 - **대소문자만 다른 key 로 읽으면 없는 것이다.** 대소문자를 가리지 않는 파일 시스템에서는 `Plan/v1.meta.yaml` 을 열면 `plan/v1.meta.yaml` 이 열린다. 그래서 `getBlob` 과 `get('artifact')` 는 읽기 전에 위치의 각 조각이 디렉터리의 항목과 한 글자도 다르지 않은지 보고(`storedAsSpelled`), 아니면 `undefined` 다 — 대소문자를 가리는 파일 시스템에서와 같은 결과다. 이것이 없으면 `getBlob('…R-001.notes')` 가 `R-001.Notes` 의 내용을 돌려준다. 비용은 읽기마다 디렉터리 목록 몇 번이다. 다른 kind 는 key 의 ID 가 정해진 대소문자(`R-`, `step-`)만 받거나 목록에서 자리를 찾으므로(Run·Feedback) 따로 보지 않는다.
 - **뒷정리가 남은 commit 의 결과를 읽을 때**(2.4, 2.7 의 lock 경로) 새 kind 와 blob 도 `.pending` 의 tmp 에서 읽고, `list`·`get` 이 파일을 찾을 때 그 파일들도 있는 것으로 센다. tmp 가 이미 제자리로 옮겨졌으면 제자리의 파일을 읽는다.
-- **AC7 의 확인**: `npm run check-store-read -- <data-dir>`(`scripts/check-store-read.mjs`). 데이터 디렉터리를 Store 로 열어 Task 마다 kind 마다 `list` 의 수와 `invalid` 를 validate-data 와 같은 이름 규칙으로 센 파일 수와 대 보고, runs/·gates/ 의 기록이 아닌 파일을 모두 `getBlob` 으로 읽어 내용을 비교한다. 파일을 쓰지 않는다. 검증용 스크립트이고 파일 구현체를 빌드 출력에서 직접 연다(`docs/architecture.md` 2절).
+- **AC7 의 확인**: `npm run check-store-read -- <data-dir>`(`scripts/check-store-read.mjs`). 데이터 디렉터리를 Store 로 열어 Task 마다 kind 마다 `list` 의 수와 `invalid` 를 Store·validate-data 와 같은 이름 규칙의 사본으로 센 파일 수와 대 보고, runs/·gates/ 의 기록이 아닌 파일을 모두 `getBlob` 으로 읽어 내용을 비교한다. 파일을 쓰지 않는다. 검증용 스크립트이고 파일 구현체를 빌드 출력에서 직접 연다(`docs/architecture.md` 2절).
 
 ## 4. DB 구현체로의 대응
 
@@ -548,7 +548,7 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 | F5 | `Event.data` 의 이벤트 종류별 내용이 정의되어 있지 않다 (`step.status_changed` 의 from/to 등) | Orchestrator 를 만들 때 종류별 payload 표를 정하고 스키마에 `if/then` 으로 추가. `task.created` 는 payload 가 필요 없어 이번 Task 에는 영향 없음 |
 | F6 | `Event.actor` 형식이 description 에만 있고 강제되지 않는다 | **처리됨(T-0005 step-002)**: `schemas/event.schema.json` 의 `actor` 에 pattern `^(human:.+\|system\|role:(intake\|worker\|reviewer\|planner))$`. 옛 이벤트는 모두 맞는다. 테스트 `tests/schemas.artifact-event.test.ts` |
 | F7 | Run 의 파일 위치가 README 에는 `runs/R-001.transcript.jsonl` 만 있고 Run 기록 자체의 위치가 없다. Step 에 속하지 않는 Run(Intake, Planner)의 위치도 없다 | `runs/<id>.yaml` 추가, Task 수준 `T-NNNN/runs/` 추가 |
-| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | `devflow-data` 는 T-0001 의 대상 repo 가 아니어서 후속 작업으로 남겼다. Store 를 실제 `devflow-data` 에 쓰기 전에 필요하다 |
+| F8 | `.locks/`, `.pending-*/`, `.rollbacks` 가 `devflow-data/.gitignore` 에 없다 | **처리됨**: `devflow-data/.gitignore` 에 세 줄이 있다(T-0002 에서 더했다). 확인은 T-0006 — git 테스트 `tests/task-flow.test.ts`(사본으로, 내부 파일이 실제로 있는 상태)와 실제 checkout 대조 `npm run check-gitignore` (2.1) |
 | F9 | 대상 repo 안에 있는 문서 산출물(이 문서가 그 예)을 Artifact 로 어떻게 표현할지 모호하다. `type: document` 인데 내용은 `content_key` 가 아니라 `code`(commit 참조)로 가리켰다 | **처리됨(T-0005 step-002)**: artifact 스키마의 `stored_in: store \| repo` 와 `paths`(repo 상대 경로), 둘의 조건과 옛 기록용 규칙(3.6). `content_key`·`work_notes_key` 는 Store 의 blob key 문법. validate-data 가 meta 를 검사한다. Store 는 Artifact 를 쓸 때 key 의 Task·Step 과 blob 의 있음을 확인한다(3.11). 테스트 `tests/schemas.artifact-event.test.ts`, `tests/validate-data.test.ts` |
 | F10 | `AGENTS.md` 7번과 `devflow-data/README.md` 의 "이벤트를 수정·삭제하지 않는다" 는 성립하지 않은 commit 의 잔여물을 잘라내는 복구(2.5)와 글자 그대로는 충돌한다 | `AGENTS.md` 7번은 고쳤다(ADR-0011). `devflow-data/README.md` 는 후속 작업으로 남겼다 |
 | F11 | GateResult 의 `verdict` 가 pass/fail 뿐이라 "통과했지만 구현 전에 고쳐야 할 결함이 있다"(G-001 이 그랬다)를 표현하지 못한다. 사람이 comments 를 다 읽어야 알 수 있다 | `comments` 를 `{ severity: defect \| risk \| note, text }` 로 구조화하거나 verdict 에 `pass_with_concerns` 추가 |
@@ -556,4 +556,4 @@ export declare class CommitOutcomeUnknownError extends StoreError {
 
 F9~F11 은 T-0001 의 설계 v1 에 대한 Gate(G-001), F12 는 v2 에 대한 Gate(G-002)와 검토 과정에서 나왔다.
 
-F6, F9, F12 는 T-0005 에서 처리했다. F2 와 F5 는 남아 있다(F2 는 Decision 의 `human_edit` 과 함께, F5 는 Orchestrator 를 만들 때). F3 은 해당 구성 요소를 만들 때가 적기다. F4, F7, F8 은 `devflow-data` 의 문서·설정 변경이다.
+F6, F9, F12 는 T-0005 에서 처리했다. F2 와 F5 는 남아 있다(F2 는 Decision 의 `human_edit` 과 함께, F5 는 Orchestrator 를 만들 때). F3 은 해당 구성 요소를 만들 때가 적기다. F4, F7 은 `devflow-data` 의 문서 변경이다. F8 은 처리되었다(T-0006 에서 확인).

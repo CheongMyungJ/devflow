@@ -1,0 +1,9 @@
+Thumbs.db
+.DS_Store
+*.tmp
+*.lock
+
+# Store 파일 구현체의 내부 파일 (devflow 의 docs/design/store.md 2.1). 어느 깊이에 생겨도 git 에 넣지 않는다.
+.locks/
+.pending-*/
+.rollbacks

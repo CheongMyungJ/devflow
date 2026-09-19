@@ -1,5 +1,5 @@
 // Store 의 파일 구현체 (docs/design/store.md 2절, 나머지 엔티티·blob·ID 발급·commit 식별자는 3절).
-// 배치(어느 기록이 어느 파일에 있는가)는 store.md 3.1·3.3 이고 규칙은 layout.ts 한 곳에 있다.
+// 배치(어느 기록이 어느 파일에 있는가)는 store.md 3.1·3.3 이고 규칙은 layout.ts 한 곳에 있다(이름의 정규식은 layout.ts 가 쓰는 names.mjs).
 // 파일 경로, 포맷, lock 에 대한 지식은 이 디렉터리 밖으로 나가지 않는다.
 
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { type SchemaName, validateAgainst } from '../../schema/validator.js';
 import type { ArtifactVersion, Event, Task } from '../../types/generated/index.js';
 import { blobRef, parseBlobRef } from '../blob-ref.js';
+import { artifactRef, formatId, idNumber, isArtifactName, isCanonicalId, parseArtifactRef } from '../refs.js';
 import {
   AlreadyExistsError,
   CommitOutcomeUnknownError,
@@ -37,20 +38,8 @@ import type {
   Store,
 } from '../types.js';
 import { codeOf, type FileOps, nodeFileOps, retryTransient, sleep } from './fs-ops.js';
-import {
-  artifactRef,
-  blobRelPath,
-  formatId,
-  idNumber,
-  isArtifactName,
-  isCanonicalId,
-  issuedNumberOf,
-  type Loc,
-  locOfRel,
-  parseArtifactRef,
-  relOfLoc,
-  TASK_DIR,
-} from './layout.js';
+import { blobRelPath, issuedNumberOf, type Loc, locOfRel, relOfLoc, TASK_DIR } from './layout.js';
+import { LOCKS_DIR, PENDING_PREFIX, ROLLBACKS_FILE } from './names.mjs';
 import { LockManager } from './lock.js';
 
 export interface FileStoreOptions {
@@ -167,8 +156,7 @@ function compareLoc(a: Loc, b: Loc): number {
 }
 
 const EVENTS = 'events.jsonl';
-const ROLLBACKS = '.rollbacks';
-const PENDING_PREFIX = '.pending-';
+const ROLLBACKS = ROLLBACKS_FILE;
 const LF = 0x0a;
 
 interface PendingFile {
@@ -334,7 +322,7 @@ export class FileStore implements Store {
     this.dataDir = options.dataDir;
     this.ops = options.ops ?? nodeFileOps;
     this.transientRetryMs = options.transientRetryMs ?? 1000;
-    this.locks = new LockManager(this.ops, join(this.dataDir, '.locks'), {
+    this.locks = new LockManager(this.ops, join(this.dataDir, LOCKS_DIR), {
       timeoutMs: options.lockTimeoutMs ?? 5000,
       transientRetryMs: this.transientRetryMs,
     });

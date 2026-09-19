@@ -1,10 +1,11 @@
 // devflow-data 의 Task 디렉터리를 스키마로 검사한다.
 // 0단계(수동 운영)에서 손으로 쓴 데이터를 확인하는 용도. 사용: npm run validate-data -- <data-dir> [T-0001 ...]
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { loadSchemas } from '../src/schema/registry.mjs';
+import { META_FILE, RECORD_FILE, STEP_DIR, TASK_DIR } from '../src/store/file/names.mjs';
 
 // 스키마는 모두 한 ajv 에 등록한다 — 스키마가 파일을 가로질러 $ref 한다(decision → step).
 const { validator } = loadSchemas(join(dirname(fileURLToPath(import.meta.url)), '..', 'schemas'));
@@ -26,19 +27,24 @@ function check(schema, value, label) {
   for (const e of validate.errors) console.error(`     ${e.instancePath || '/'} ${e.message}`);
 }
 const yamlFiles = (dir) => (existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.yaml')) : []);
-// 이름이 그 kind 의 모양인 파일만 그 kind 로 읽는다 — Store 의 list 와 같은 규칙이다(docs/design/store.md 3.1, src/store/file/layout.ts).
+// 이름이 그 kind 의 모양인 파일만 그 kind 로 읽는다 — Store 의 list 와 같은 규칙이고, 정규식은 Store 가 쓰는 src/store/file/names.mjs 의
+// 것이다(docs/design/store.md 3.1, 3.11). Task 디렉터리(T-<4자리 이상>)와 Step 디렉터리(steps/ 아래의 디렉터리 가운데 step-<숫자>)도 같다.
 // runs/ 에는 Run 기록(R-NNN.yaml) 말고도 그 Run 이 소유한 파일(R-NNN.output.yaml, R-NNN.work-notes.md 등 — blob)이 있고, gates/ 에는
 // Gate 가 소유한 파일(G-NNN.deterministic.md 등)이 있다. blob 가운데에는 이름이 .yaml 로 끝나는 것도 있다(R-NNN.output.yaml).
 // Task 수준과 Step 수준 모두 같다. 이 규칙과 Store 의 list 가 같은 파일을 읽는지는 tests/store/list-rules.test.ts 가 확인한다.
-const decisionFiles = (dir) => yamlFiles(dir).filter((n) => /^D-\d+\.yaml$/.test(n));
-const feedbackFiles = (dir) => yamlFiles(dir).filter((n) => /^F-\d+\.yaml$/.test(n));
-const runFiles = (dir) => yamlFiles(dir).filter((n) => /^R-\d+\.yaml$/.test(n));
-const gateFiles = (dir) => yamlFiles(dir).filter((n) => /^G-\d+\.yaml$/.test(n));
+const decisionFiles = (dir) => yamlFiles(dir).filter((n) => RECORD_FILE.decision.test(n));
+const feedbackFiles = (dir) => yamlFiles(dir).filter((n) => RECORD_FILE.feedback.test(n));
+const runFiles = (dir) => yamlFiles(dir).filter((n) => RECORD_FILE.run.test(n));
+const gateFiles = (dir) => yamlFiles(dir).filter((n) => RECORD_FILE.gate_result.test(n));
 // Artifact meta: steps/<step>/artifacts/<name>/v<N>.meta.yaml (docs/design/store.md 3.1)
-const metaFiles = (dir) => (existsSync(dir) ? readdirSync(dir).filter((f) => /^v\d+\.meta\.yaml$/.test(f)) : []);
+const metaFiles = (dir) => (existsSync(dir) ? readdirSync(dir).filter((f) => META_FILE.test(f)) : []);
+const isDir = (path) => existsSync(path) && statSync(path).isDirectory();
+// 규칙 밖의 이름(T-12, steps/draft/, steps/ 의 일반 파일)은 Store 처럼 읽지 않는다.
+const taskDirs = (dir) => readdirSync(dir).filter((d) => TASK_DIR.test(d) && isDir(join(dir, d)));
+const stepDirs = (dir) => (isDir(dir) ? readdirSync(dir).filter((d) => STEP_DIR.test(d) && isDir(join(dir, d))) : []);
 const readYaml = (file) => parse(readFileSync(file, 'utf8'));
 
-const taskIds = only.length ? only : readdirSync(dataDir).filter((d) => /^T-\d+$/.test(d));
+const taskIds = only.length ? only : taskDirs(dataDir);
 for (const taskId of taskIds) {
   const dir = join(dataDir, taskId);
   check('task', readYaml(join(dir, 'task.yaml')), `${taskId}/task.yaml`);
@@ -50,9 +56,14 @@ for (const taskId of taskIds) {
   for (const f of runFiles(join(dir, 'runs'))) check('run', readYaml(join(dir, 'runs', f)), `${taskId}/runs/${f}`);
 
   const stepsDir = join(dir, 'steps');
-  for (const step of existsSync(stepsDir) ? readdirSync(stepsDir) : []) {
+  for (const step of stepDirs(stepsDir)) {
     const sdir = join(stepsDir, step);
-    check('step', readYaml(join(sdir, 'step.yaml')), `${taskId}/steps/${step}/step.yaml`);
+    if (existsSync(join(sdir, 'step.yaml'))) check('step', readYaml(join(sdir, 'step.yaml')), `${taskId}/steps/${step}/step.yaml`);
+    else {
+      // Store 는 step.yaml 이 없는 Step 디렉터리를 Step 으로 세지 않는다(그 안의 기록은 읽는다). 죽지 않고 실패로 보인다.
+      failures++;
+      console.error(`FAIL ${taskId}/steps/${step}/step.yaml 이 없다`);
+    }
     for (const f of feedbackFiles(join(sdir, 'feedback'))) check('feedback', readYaml(join(sdir, 'feedback', f)), `${taskId}/steps/${step}/feedback/${f}`);
     for (const f of gateFiles(join(sdir, 'gates'))) check('gate-result', readYaml(join(sdir, 'gates', f)), `${taskId}/steps/${step}/gates/${f}`);
     for (const f of runFiles(join(sdir, 'runs'))) check('run', readYaml(join(sdir, 'runs', f)), `${taskId}/steps/${step}/runs/${f}`);

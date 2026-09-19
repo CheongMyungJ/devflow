@@ -1,12 +1,15 @@
 // 파일 구현체의 배치 — Task 디렉터리 안에서 기록이 어느 파일에 있는가 (docs/design/store.md 3.1, 3.3).
 // 파일 이름 규칙은 여기 한 곳에만 있다: list 가 kind 로 읽는 이름(locOfRel), nextId 가 세는 이름(locOfRel 의 기록과 blob),
-// 쓰기가 놓는 자리(relOfLoc), blob key → 파일(blobRelPath)이 모두 이 파일의 함수다. key 의 문법 자체는 ../blob-ref.ts 에 있다.
+// 쓰기가 놓는 자리(relOfLoc), blob key → 파일(blobRelPath)이 모두 이 파일의 함수다. 디렉터리·기록 파일 이름의 정규식은 ./names.mjs 에
+// 있다(scripts/validate-data.mjs 가 빌드 없이 같은 것을 import 한다). key 의 문법은 ../blob-ref.ts, ID 와 artifact 참조의 문법은 ../refs.ts 에 있다.
 // 위치는 Task 디렉터리 기준이고 구분자는 항상 '/' 다(commit.json 에 그대로 저장된다 — store.md 2.9).
 
 import { type ParsedBlobRef, parseBlobRef } from '../blob-ref.js';
+import { idNumber } from '../refs.js';
 import type { IssuedIdKind } from '../types.js';
+import { META_FILE, RECORD_FILE, STEP_DIR } from './names.mjs';
 
-export const TASK_DIR = /^T-(\d{4,})$/;
+export { TASK_DIR } from './names.mjs';
 
 /** Task 디렉터리 안의 기록 하나의 자리. kind 는 EntityKind 와 같다. */
 export type Loc =
@@ -20,41 +23,6 @@ export type Loc =
 
 /** Task 디렉터리 안의 blob 하나의 자리. */
 export type BlobLoc = { kind: 'blob'; ref: ParsedBlobRef };
-
-// ---------------------------------------------------------------- ID 의 모양 (store.md 3.1)
-
-const PREFIX: Record<IssuedIdKind, string> = { step: 'step', decision: 'D', feedback: 'F', run: 'R', gate_result: 'G' };
-
-/** 읽을 때 받는 모양: <접두어>-<숫자>. 값을 파일 이름으로 쓰기 전에, 그리고 key 로 파일을 찾기 전에 확인한다. */
-export function idNumber(kind: IssuedIdKind, id: string): number | undefined {
-  const match = new RegExp(`^${PREFIX[kind]}-(\\d+)$`).exec(id);
-  return match ? Number(match[1]) : undefined;
-}
-
-/** 쓸 때 요구하는 모양: 3자리 0 채움, 999 를 넘으면 자릿수가 늘어난다('R-012', 'R-1000'). 'R-12', 'R-0012' 는 아니다. */
-export function isCanonicalId(kind: IssuedIdKind, id: string): boolean {
-  const n = idNumber(kind, id);
-  return n !== undefined && n >= 1 && formatId(kind, n) === id;
-}
-
-export function formatId(kind: IssuedIdKind, n: number): string {
-  return `${PREFIX[kind]}-${String(n).padStart(3, '0')}`;
-}
-
-/** Artifact 의 이름: 디렉터리 이름이 되므로 영숫자로 시작하고 영숫자·.·_·- 만 (step 스키마의 artifact:// pattern 과 같다). */
-const ARTIFACT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-export const isArtifactName = (name: string) => ARTIFACT_NAME.test(name);
-
-const ARTIFACT_REF = /^artifact:\/\/(T-\d{4,})\/(step-\d+)\/([A-Za-z0-9][A-Za-z0-9._-]*)@v([1-9]\d*)$/;
-
-export function artifactRef(taskId: string, stepId: string, name: string, version: number): string {
-  return `artifact://${taskId}/${stepId}/${name}@v${version}`;
-}
-
-export function parseArtifactRef(ref: string): { taskId: string; stepId: string; name: string; version: number } | undefined {
-  const m = ARTIFACT_REF.exec(ref);
-  return m ? { taskId: m[1]!, stepId: m[2]!, name: m[3]!, version: Number(m[4]) } : undefined;
-}
 
 // ---------------------------------------------------------------- 자리 → 파일
 
@@ -86,15 +54,6 @@ export function blobRelPath(ref: ParsedBlobRef): string {
 }
 
 // ---------------------------------------------------------------- 파일 → 자리 (list, nextId, get 의 두 수준 찾기가 쓴다)
-
-const STEP_DIR = /^step-\d+$/;
-const RECORD_FILE: Record<'decision' | 'feedback' | 'run' | 'gate_result', RegExp> = {
-  decision: /^(D-\d+)\.yaml$/,
-  feedback: /^(F-\d+)\.yaml$/,
-  run: /^(R-\d+)\.yaml$/,
-  gate_result: /^(G-\d+)\.yaml$/,
-};
-const META_FILE = /^v(\d+)\.meta\.yaml$/;
 
 /**
  * Task 디렉터리 기준 위치를 기록·blob 의 자리로 푼다. 어느 것도 아니면 undefined(Store 가 다루지 않는 파일 — ledger.md 등).

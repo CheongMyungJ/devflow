@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type CommandContext, createTask, type CreateTaskInput } from '../../src/commands/index.js';
+import { type CommandContext, createTask, type CreateTaskInput, RejectedInputError } from '../../src/commands/index.js';
 import { getTask, listTasks } from '../../src/queries/index.js';
 import { CommitOutcomeUnknownError, SchemaViolationError, StoreBusyError, StoreUnavailableError, TaskNotFoundError } from '../../src/store/errors.js';
 import type { NewEvent, Store } from '../../src/store/types.js';
@@ -26,13 +26,13 @@ describe('commands.createTask (AC6)', () => {
     expect(task).toMatchObject({
       id: 'T-0001',
       status: 'open',
-      created_at: '2026-09-18T01:02:03.000Z',
-      created_by: 'human:tester',
+      created_at: '2026-09-18T01:02:03Z',
+      created_by: 'tester',
       target: { repo: 'shop', base_branch: 'main', task_branch: 'task/T-0001-partial-cancel', scope_hint: ['src/order/'] },
     });
     expect(await getTask({ store }, 'T-0001')).toEqual(task);
     expect(await store.readEvents('T-0001')).toEqual([
-      { seq: 1, task_id: 'T-0001', commit_id: expect.stringMatching(UUID), type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03.000Z', system_sha: 'abc123' },
+      { seq: 1, task_id: 'T-0001', commit_id: expect.stringMatching(UUID), type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03Z', system_sha: 'abc123' },
     ]);
   });
 
@@ -148,7 +148,7 @@ describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 — co
     // 그 자리의 이벤트는 식별자만 다르고 나머지는 보낸 것과 같았다 — T-0001 의 내용 비교라면 성립으로 판정했을 상황이다
     const { commit_id, seq, task_id, ...content } = seen[0]!;
     expect(commit_id).toBe(OTHER);
-    expect(content).toEqual({ type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03.000Z' });
+    expect(content).toEqual({ type: 'task.created', actor: 'human:tester', at: '2026-09-18T01:02:03Z' });
   });
 
   it('식별자가 없는 옛 이벤트는 내용이 같아도 자기 것이 아니다', async () => {
@@ -181,5 +181,46 @@ describe('commands.createTask: 결과를 알 수 없는 commit 의 확인 — co
     const error = await createTask(context(eventsUnreadable), input).catch((e) => e);
     expect(error).toBeInstanceOf(CommitOutcomeUnknownError);
     expect(error.commitId).toBe(MINE);
+  });
+});
+
+describe('commands.createTask: 시각·created_by·task.created 의 data (T-0006 F-001 (3), step-005)', () => {
+  const msClock = { now: () => new Date('2026-09-20T01:02:03.987Z') };
+
+  it('created_at 과 task.created 의 at 은 초 단위 UTC 이고, task.yaml 의 created_by 는 사람의 id 만, 이벤트의 actor 는 human:<id> 그대로다', async () => {
+    const store = newStore(tempDataDir());
+    const task = await createTask(context(store, { clock: msClock, actor: 'human:CheongMyungJ' }), input);
+    expect(task.created_at).toBe('2026-09-20T01:02:03Z');
+    expect(task.created_by).toBe('CheongMyungJ');
+    const [event] = await store.readEvents(task.id);
+    expect(event).toMatchObject({ type: 'task.created', actor: 'human:CheongMyungJ', at: '2026-09-20T01:02:03Z' });
+    expect(event).not.toHaveProperty('data');
+  });
+
+  it('createdData 는 task.created 의 data 가 된다(옛 기록의 backlog·intake·note 자리). Task 에는 들어가지 않는다', async () => {
+    const store = newStore(tempDataDir());
+    const createdData = { backlog: 'item 3', intake: 'manual (stage 0)', note: '경위' };
+    const task = await createTask(context(store), { ...input, createdData });
+    expect(task).not.toHaveProperty('createdData');
+    expect((await store.readEvents(task.id))[0]!.data).toEqual(createdData);
+    expect(await getTask({ store }, task.id)).toEqual(task);
+  });
+
+  it.each([
+    ['사람이 아닌 actor(system)', { actor: 'system' }, {}, /actor: 사람이 한 일은 human:<id>/],
+    ['사람이 아닌 actor(role:planner)', { actor: 'role:planner' }, {}, /actor:/],
+    ['id', {}, { id: 'T-0009' }, /^id: 도구가 채우는 필드다/m],
+    ['status', {}, { status: 'done' }, /^status: 도구가 채우는 필드다/m],
+    ['created_at', {}, { created_at: '2026-01-01T00:00:00Z' }, /^created_at: 도구가 채우는 필드다/m],
+    ['created_by', {}, { created_by: 'someone' }, /^created_by: 도구가 채우는 필드다/m],
+    ['target.task_branch', {}, { target: { ...input.target, task_branch: 'task/x' } }, /^target\.task_branch: 도구가 채우는 필드다/m],
+    ['createdData 의 모르는 필드', {}, { createdData: { at: 'x' } }, /createdData\.at: 모르는 입력이다/],
+  ] as const)('거부 — %s: 아무것도 쓰지 않는다', async (_label, ctxOverride, inputOverride, message) => {
+    const dataDir = tempDataDir();
+    const store = newStore(dataDir);
+    const error = await createTask(context(store, ctxOverride), { ...input, ...inputOverride } as CreateTaskInput).catch((e) => e);
+    expect(error).toBeInstanceOf(RejectedInputError);
+    expect(error.reasons.join('\n')).toMatch(message);
+    expect(snapshot(dataDir)).toEqual({});
   });
 });

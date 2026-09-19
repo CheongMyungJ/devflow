@@ -2,9 +2,10 @@
 // 사용: npm run check-store-read -- <data-dir>
 //
 // Task 마다 kind 마다 list 를 불러 invalid 가 비어 있는지, 읽은 항목 수가 그 kind 의 파일 수와 같은지 본다. 기대값은 고정하지 않고
-// data-dir 의 파일 이름에서 센다 — 세는 규칙은 scripts/validate-data.mjs 와 같은 이름 규칙(D-NNN.yaml, F-NNN.yaml, R-NNN.yaml,
-// G-NNN.yaml, v<N>.meta.yaml, steps/*/step.yaml)을 여기에 따로 적은 것이다(Store 의 layout.ts 를 쓰지 않는다 — 같은 규칙을 Store 가
-// 따로 구현해 같은 수를 내는지가 확인하려는 것이다). 그 밖에:
+// data-dir 의 파일 이름에서 센다 — 세는 규칙은 Store 와 scripts/validate-data.mjs 가 함께 쓰는 이름 규칙(src/store/file/names.mjs —
+// Task 디렉터리 T-<4자리 이상>, steps/ 아래의 디렉터리 가운데 step-<숫자>, D-NNN.yaml, F-NNN.yaml, R-NNN.yaml, G-NNN.yaml, v<N>.meta.yaml,
+// steps/<step>/step.yaml)을 여기에 따로 적은 사본이다(그 모듈을 쓰지 않는다 — 같은 규칙을 Store 가 따로 구현해 같은 수를 내는지가
+// 확인하려는 것이다. 두 쪽이 같은 판단을 하는지는 tests/store/dir-rules.test.ts 가 본다). 그 밖에:
 //  - runs/·gates/ 의 기록이 아닌 파일은 모두 blob 이어야 한다: 파일 이름에서 key 를 만들어 getBlob 으로 읽고 내용이 파일과 같은지 본다.
 //  - Run·Feedback 은 get 으로 다시 읽어 list 의 것과 같은지 본다(두 수준을 찾아 보는 get 이 모호하지 않은가).
 //  - Artifact meta 의 content_key·work_notes_key 가 getBlob 으로 읽히는지 본다.
@@ -56,7 +57,9 @@ try {
   const RECORD = { decision: /^D-\d+\.yaml$/, feedback: /^F-\d+\.yaml$/, run: /^R-\d+\.yaml$/, gate_result: /^G-\d+\.yaml$/ };
   const META = /^v\d+\.meta\.yaml$/;
 
-  const taskIds = entries(dataDir).filter((d) => /^T-\d+$/.test(d));
+  // 디렉터리 이름 규칙의 사본(일부러 — 머리 주석). Store 의 규칙(src/store/file/names.mjs)과 같은 판단을 하는지는 tests/store/dir-rules.test.ts 가 본다.
+  const isDir = (path) => existsSync(path) && statSync(path).isDirectory();
+  const taskIds = entries(dataDir).filter((d) => /^T-\d{4,}$/.test(d) && isDir(join(dataDir, d)));
   const tasks = await store.list('task', {});
   if (tasks.invalid.length) fail(`task: invalid ${JSON.stringify(tasks.invalid)}`);
   if (tasks.items.length !== taskIds.length) fail(`task: read ${tasks.items.length}, Task directories ${taskIds.length}`);
@@ -65,7 +68,7 @@ try {
   const totals = {};
   for (const taskId of taskIds) {
     const dir = join(dataDir, taskId);
-    const steps = entries(join(dir, 'steps'));
+    const steps = entries(join(dir, 'steps')).filter((s) => /^step-\d+$/.test(s) && isDir(join(dir, 'steps', s)));
     // kind → data-dir 에서 이름 규칙으로 센 파일 수
     const expected = {
       step: steps.filter((s) => existsSync(join(dir, 'steps', s, 'step.yaml'))).length,
