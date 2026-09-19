@@ -9,6 +9,11 @@
   "properties": {
     "seq": { "type": "integer", "minimum": 1, "description": "Task 내 순번. 동시성 제어와 재적재의 기준." },
     "task_id": { "type": "string" },
+    "commit_id": {
+      "description": "이 이벤트를 기록한 Store commit(commit, createTask 의 호출 하나)의 식별자. Store 가 commit 마다 하나를 만들어 그 commit 의 모든 이벤트에 같은 값을 넣는다 — 호출자는 주지 않는다. UUID 의 소문자 문자열이고 버전은 고정하지 않는다. 결과를 알 수 없는 commit 의 확인이 이 값으로 \"내 commit 인가\" 를 가린다(docs/design/commands.md 3절). 이 필드가 생기기 전의 이벤트와 0단계의 운영 스크립트가 쓴 이벤트에는 없다.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
     "type": {
       "description": "MVP 에서 사용하는 이벤트. 필요 시 추가한다.",
       "enum": [
@@ -22,7 +27,11 @@
         "ledger.updated"
       ]
     },
-    "actor": { "description": "human:<id> | system | role:<intake|worker|reviewer|planner>", "type": "string" },
+    "actor": {
+      "description": "누가 일으켰는가. human:<id>(사람, <id> 는 비어 있지 않다) | system | role:<intake|worker|reviewer|planner>(역할 세션). 모두 소문자 접두어다.",
+      "type": "string",
+      "pattern": "^(human:.+|system|role:(intake|worker|reviewer|planner))$"
+    },
     "step_id": { "type": "string" },
     "run_id": { "type": "string" },
     "ref": { "type": "string", "description": "관련 엔티티 ID 또는 artifact ref." },

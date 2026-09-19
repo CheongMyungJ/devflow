@@ -1,0 +1,30 @@
+id: D-001
+task_id: T-9002
+after_step: null
+action: next_step
+rationale: |
+  예시 Decision. next_step.step 은 step 스키마의 정의로 검사된다(파일을 가로지르는 $ref).
+next_step:
+  step:
+    skill: null
+    goal: |
+      예시 문서를 쓴다.
+    scope:
+      include:
+        - docs/example.md
+    inputs:
+      - task.brief
+    outputs:
+      - name: plan
+        type: document
+      - name: change
+        type: code_change
+    done_when:
+      - 예시 문서가 있다
+    verify:
+      semantic:
+        - 문서가 목표를 말하는가
+    approval: required
+packet_gaps: []
+planner_run_id: R-001
+created_at: "2026-01-01T00:05:00Z"

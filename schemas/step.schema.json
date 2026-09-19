@@ -4,113 +4,124 @@
   "title": "Step",
   "description": "Planner 가 하나씩 결정하는 작업 단위. Freeform 과 Skill 기반 Step 모두 이 스키마로 펼쳐진 뒤 같은 경로로 실행된다.",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["id", "task_id", "goal", "scope", "inputs", "outputs", "done_when", "verify", "approval", "status"],
+  "allOf": [{ "$ref": "#/$defs/definition" }],
+  "unevaluatedProperties": false,
+  "required": ["id", "task_id", "status"],
   "properties": {
     "id": { "type": "string", "pattern": "^step-[0-9]{3,}$" },
     "task_id": { "type": "string" },
-    "skill": {
-      "description": "Skill 에서 펼쳐진 Step 이면 'name@version', Freeform 이면 null. 기록 목적이며 실행 경로에는 영향이 없다.",
-      "type": ["string", "null"]
-    },
-    "goal": { "type": "string", "description": "이 Step 이 무엇을 달성해야 하는가." },
-    "scope": {
+    "status": {
+      "enum": ["proposed", "defined", "running", "checking", "in_review", "revising", "approved", "closed", "cancelled"]
+    }
+  },
+  "$defs": {
+    "definition": {
+      "title": "StepDefinition",
+      "description": "Step 의 정의 — Step 에서 id·task_id·status 를 뺀 것. Step 과 Decision 의 next_step.step(Planner 가 제안한 Step)이 이 정의 하나를 참조한다. 정의되지 않은 필드는 참조하는 쪽의 unevaluatedProperties: false 가 거부한다.",
       "type": "object",
-      "additionalProperties": false,
+      "required": ["goal", "scope", "inputs", "outputs", "done_when", "verify", "approval"],
       "properties": {
-        "include": { "type": "array", "items": { "type": "string" }, "description": "작업 대상 (repo 상대 경로, 모듈, 주제)." },
-        "exclude": { "type": "array", "items": { "type": "string" }, "description": "하지 말아야 할 것 (예: '코드 수정 금지 — 분석만')." }
-      }
-    },
-    "inputs": {
-      "description": "시스템이 Context 패킷을 조립할 때 사용하는 참조 목록. 승인된 Artifact 버전만 참조할 수 있다. 각 항목은 아래 여섯 형태 중 하나여야 한다. 로컬 경로(드라이브 문자, 역슬래시, 절대·상대 파일 경로)나 URL 은 쓸 수 없다 — 참조를 실제 위치로 바꾸는 것은 시스템의 일이다.",
-      "type": "array",
-      "items": {
-        "type": "string",
-        "anyOf": [
-          { "description": "'task.brief' — Task 정의(문제, 목표, 성공 기준, 영향받는 사람과 시스템, 배경, 제약, 범위 밖, 열린 질문, AC).", "const": "task.brief" },
-          { "description": "'task.ledger' — Task Ledger.", "const": "task.ledger" },
-          {
-            "description": "'artifact://<task>/<step>/<name>@v<N>' — 문서·코드 산출물의 특정 버전. 예: 'artifact://T-0012/step-002/repro-report@v2'. 버전(@v1 부터)은 필수다. <name> 은 영숫자로 시작하고 영숫자와 . _ - 만 쓴다.",
-            "type": "string",
-            "pattern": "^artifact://T-[0-9]{4,}/step-[0-9]{3,}/[A-Za-z0-9][A-Za-z0-9._-]*@v[1-9][0-9]*$"
-          },
-          {
-            "description": "'code://<project>@<sha>' — 등록된 프로젝트(데이터 repo 의 projects.yaml 에 있는 이름)의 특정 commit 의 코드. <sha> 는 줄이지 않은 commit SHA(16진 소문자 40자, SHA-256 repo 는 64자)이고 branch 이름이나 줄인 SHA 는 쓸 수 없다. <project> 는 Task 의 대상 repo(target.repo)가 아니어도 된다 — 등록된 프로젝트이면 어느 것이든 가리킬 수 있고, 한 Step 이 여러 개를 가리켜도 된다. 대상 repo 가 아닌 프로젝트의 code:// 는 읽기 전용 참조다: 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이고(ADR-0008), 다른 프로젝트는 그 SHA 의 내용을 읽을 수 있게만 제공된다. 프로젝트가 실제로 등록되어 있는지는 스키마가 아니라 시스템이 패킷을 조립할 때 확인한다.",
-            "type": "string",
-            "pattern": "^code://[A-Za-z0-9][A-Za-z0-9._-]*@([0-9a-f]{40}|[0-9a-f]{64})$"
-          },
-          {
-            "description": "'gate://<task>/<step>/<gate-id>' — GateResult 하나. 예: 'gate://T-0001/step-001/G-003'.",
-            "type": "string",
-            "pattern": "^gate://T-[0-9]{4,}/step-[0-9]{3,}/G-[0-9]{3,}$"
-          },
-          {
-            "description": "'blob:<key>' — Store 의 blob 키(로그, 실측 기록 등 Artifact 가 아닌 자료). 예: 'blob:T-0001/step-001/R-005.probe'. <key> 는 '/' 로 나뉜 조각들이고 각 조각은 영숫자·_·- 로 시작해 영숫자와 . _ - 만 쓴다('.', '..' 조각과 ':', 역슬래시, 맨 앞의 '/' 는 쓸 수 없다 — 경로가 아니라 키다).",
-            "type": "string",
-            "pattern": "^blob:[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"
+        "skill": {
+          "description": "Skill 에서 펼쳐진 Step 이면 'name@version', Freeform 이면 null. 기록 목적이며 실행 경로에는 영향이 없다.",
+          "type": ["string", "null"]
+        },
+        "goal": { "type": "string", "description": "이 Step 이 무엇을 달성해야 하는가." },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "include": { "type": "array", "items": { "type": "string" }, "description": "작업 대상 (repo 상대 경로, 모듈, 주제)." },
+            "exclude": { "type": "array", "items": { "type": "string" }, "description": "하지 말아야 할 것 (예: '코드 수정 금지 — 분석만')." }
           }
-        ]
-      }
-    },
-    "outputs": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "type"],
-        "properties": {
-          "name": { "type": "string" },
-          "type": { "enum": ["document", "code_change", "data"] },
-          "description": { "type": "string" }
-        }
-      }
-    },
-    "done_when": {
-      "description": "완료 조건. 검증 가능한 문장으로 쓴다.",
-      "type": "array",
-      "minItems": 1,
-      "items": { "type": "string" }
-    },
-    "verify": {
-      "description": "이 Step 에서 실행할 검증. 선언된 것만 실행된다. 둘 중 하나 이상은 비어 있지 않아야 한다 (ADR-0003).",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "deterministic": {
-          "description": "시스템이 실행하는 검사. 코드 변경이 없는 Step 에 build/test 를 넣지 않는다.",
+        },
+        "inputs": {
+          "description": "시스템이 Context 패킷을 조립할 때 사용하는 참조 목록. 승인된 Artifact 버전만 참조할 수 있다. 각 항목은 아래 여섯 형태 중 하나여야 한다. 로컬 경로(드라이브 문자, 역슬래시, 절대·상대 파일 경로)나 URL 은 쓸 수 없다 — 참조를 실제 위치로 바꾸는 것은 시스템의 일이다.",
           "type": "array",
+          "items": {
+            "type": "string",
+            "anyOf": [
+              { "description": "'task.brief' — Task 정의(문제, 목표, 성공 기준, 영향받는 사람과 시스템, 배경, 제약, 범위 밖, 열린 질문, AC).", "const": "task.brief" },
+              { "description": "'task.ledger' — Task Ledger.", "const": "task.ledger" },
+              {
+                "description": "'artifact://<task>/<step>/<name>@v<N>' — 문서·코드 산출물의 특정 버전. 예: 'artifact://T-0012/step-002/repro-report@v2'. 버전(@v1 부터)은 필수다. <name> 은 영숫자로 시작하고 영숫자와 . _ - 만 쓴다.",
+                "type": "string",
+                "pattern": "^artifact://T-[0-9]{4,}/step-[0-9]{3,}/[A-Za-z0-9][A-Za-z0-9._-]*@v[1-9][0-9]*$"
+              },
+              {
+                "description": "'code://<project>@<sha>' — 등록된 프로젝트(데이터 repo 의 projects.yaml 에 있는 이름)의 특정 commit 의 코드. <sha> 는 줄이지 않은 commit SHA(16진 소문자 40자, SHA-256 repo 는 64자)이고 branch 이름이나 줄인 SHA 는 쓸 수 없다. <project> 는 Task 의 대상 repo(target.repo)가 아니어도 된다 — 등록된 프로젝트이면 어느 것이든 가리킬 수 있고, 한 Step 이 여러 개를 가리켜도 된다. 대상 repo 가 아닌 프로젝트의 code:// 는 읽기 전용 참조다: 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이고(ADR-0008), 다른 프로젝트는 그 SHA 의 내용을 읽을 수 있게만 제공된다. 프로젝트가 실제로 등록되어 있는지는 스키마가 아니라 시스템이 패킷을 조립할 때 확인한다.",
+                "type": "string",
+                "pattern": "^code://[A-Za-z0-9][A-Za-z0-9._-]*@([0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              {
+                "description": "'gate://<task>/<step>/<gate-id>' — GateResult 하나. 예: 'gate://T-0001/step-001/G-003'.",
+                "type": "string",
+                "pattern": "^gate://T-[0-9]{4,}/step-[0-9]{3,}/G-[0-9]{3,}$"
+              },
+              {
+                "description": "'blob:<key>' — Store 의 blob 키(로그, 실측 기록 등 Artifact 가 아닌 자료). 예: 'blob:T-0001/step-001/R-005.probe'. <key> 는 '/' 로 나뉜 조각들이고 각 조각은 영숫자·_·- 로 시작해 영숫자와 . _ - 만 쓴다('.', '..' 조각과 ':', 역슬래시, 맨 앞의 '/' 는 쓸 수 없다 — 경로가 아니라 키다).",
+                "type": "string",
+                "pattern": "^blob:[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"
+              }
+            ]
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "run"],
+            "required": ["name", "type"],
             "properties": {
               "name": { "type": "string" },
-              "run": { "type": "string", "description": "명령, 또는 '.devflow.yaml' 에 정의된 명령의 이름 (예: '@build', '@test')." },
-              "expect": { "enum": ["success", "failure"], "default": "success", "description": "버그 재현 테스트처럼 실패해야 통과인 경우 'failure'." }
+              "type": { "enum": ["document", "code_change", "data"] },
+              "description": { "type": "string" }
             }
           }
         },
-        "semantic": {
-          "description": "Quality Reviewer(AI)가 판단할 질문 목록.",
+        "done_when": {
+          "description": "완료 조건. 검증 가능한 문장으로 쓴다.",
           "type": "array",
+          "minItems": 1,
           "items": { "type": "string" }
-        }
-      },
-      "anyOf": [
-        { "required": ["deterministic"], "properties": { "deterministic": { "minItems": 1 } } },
-        { "required": ["semantic"], "properties": { "semantic": { "minItems": 1 } } }
-      ]
-    },
-    "approval": {
-      "description": "required: 사람 승인 필수. optional: Gate 통과 시 자동 진행. deterministic 이 비어 있으면 시스템이 required 로 강제한다.",
-      "enum": ["required", "optional"]
-    },
-    "status": {
-      "enum": ["proposed", "defined", "running", "checking", "in_review", "revising", "approved", "closed", "cancelled"]
-    },
-    "rationale": { "type": "string", "description": "Planner 가 이 Step 을 선택한 이유." },
-    "created_from": { "type": "string", "description": "이 Step 을 만든 Decision ID." }
+        },
+        "verify": {
+          "description": "이 Step 에서 실행할 검증. 선언된 것만 실행된다. 둘 중 하나 이상은 비어 있지 않아야 한다 (ADR-0003).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deterministic": {
+              "description": "시스템이 실행하는 검사. 코드 변경이 없는 Step 에 build/test 를 넣지 않는다.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "run"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "run": { "type": "string", "description": "명령, 또는 '.devflow.yaml' 에 정의된 명령의 이름 (예: '@build', '@test')." },
+                  "expect": { "enum": ["success", "failure"], "default": "success", "description": "버그 재현 테스트처럼 실패해야 통과인 경우 'failure'." }
+                }
+              }
+            },
+            "semantic": {
+              "description": "Quality Reviewer(AI)가 판단할 질문 목록.",
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "anyOf": [
+            { "required": ["deterministic"], "properties": { "deterministic": { "type": "array", "minItems": 1 } } },
+            { "required": ["semantic"], "properties": { "semantic": { "type": "array", "minItems": 1 } } }
+          ]
+        },
+        "approval": {
+          "description": "required: 사람 승인 필수. optional: Gate 통과 시 자동 진행. deterministic 이 비어 있으면 시스템이 required 로 강제한다.",
+          "enum": ["required", "optional"]
+        },
+        "rationale": { "type": "string", "description": "Planner 가 이 Step 을 선택한 이유." },
+        "created_from": { "type": "string", "description": "이 Step 을 만든 Decision ID." }
+      }
+    }
   }
 }

@@ -345,7 +345,8 @@ artifact 스키마에 두 필드와 조건을 더한다. 스키마의 descriptio
 
 - `stored_in`: `store` | `repo`. `store` 면 내용은 Store 의 blob 이고 `content_key` 가 필수, `code`·`paths` 는 없어야 한다. `type` 은 `document` 나 `data`. `repo` 면 내용은 대상 repo 의 commit(`code`) 안의 파일이고 `code` 와 `paths`(repo 상대 경로, 1개 이상)가 필수, `content_key` 는 없어야 한다.
 - `type: code_change` 는 언제나 repo 다 — `code` 필수, `content_key` 금지, `stored_in` 이 있으면 `repo`.
-- `content_key` 에 blob 문법의 pattern 을 건다.
+- `content_key` 에 blob 문법의 pattern 을 건다. **3.3 의 Store 의 key 문법**(`blob:<task>/[<step>/]<owner>.<name>` — owner 는 `R-NNN`, Step 수준이면 `G-NNN` 도, name 은 label 과 선택적인 ext)이고, step 스키마의 느슨한 `blob:<key>` 문법이 아니다(T-0005 step-002 에서 정했다). 이유: meta 가 가리키는 내용은 `getBlob` 으로 읽을 수 있어야 하는데 느슨한 문법은 `blob:key`, `blob:T-0001/step-001/R-002.yaml`(Run 기록 자체의 파일 이름) 같은 key 를 받는다. 기존 meta 의 key 는 모두 이 문법에 맞는다. 같은 pattern 을 `work_notes_key` 에도 건다(같은 종류의 key 다). 스키마가 확인하지 못하는 것: key 의 Task·Step 이 meta 의 `task_id`·`step_id` 와 같은지, 그 blob 이 실제로 있는지 — 문법에 맞는 key 는 `getBlob` 이 읽을 수 있는 자리를 가리키지만 없으면 `undefined` 다.
+- `paths` 의 항목은 repo 상대 경로다: `/` 로 나뉜 비어 있지 않은 조각들이고, 조각에 역슬래시·`:`·제어 문자가 없으며 `.`·`..` 조각과 맨 앞의 `/` 가 없다(드라이브 문자, UNC, URL 이 여기서 막힌다). step 스키마의 `blob:` 조각 문법보다 넓다 — repo 의 파일 이름은 `.devflow.yaml` 처럼 점으로 시작하거나 공백을 담을 수 있다.
 - **옛 기록**: `stored_in` 이 없으면 이 필드가 생기기 전의 기록이다. 그때는 `content_key` 와 `code` 중 **정확히 하나**가 있어야 하고(있는 쪽이 위치다) `paths` 는 없어야 한다. T-0001 의 `store-design`(document 인데 `code` 만 있다)과 나머지 기존 meta 34개가 고치지 않은 채 통과한다(작업 노트의 실험). 새 meta 에는 `stored_in` 을 항상 적는다.
 - 지금보다 느슨해지지 않는다: 지금 통과하는 모순(문서에 `content_key` 와 `code` 가 둘 다 있거나 둘 다 없는 것, `code_change` 에 `content_key`)이 새 스키마에서는 거부된다. 강제하지 못하는 것은 "새 meta 가 `stored_in` 을 빠뜨리는 것" 하나이고, 빠뜨려도 위의 옛 규칙 때문에 위치가 모호해지지는 않는다(repo 인 경우 `paths` 가 없을 뿐이다).
 

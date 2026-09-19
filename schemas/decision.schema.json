@@ -17,11 +17,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "step": { "type": "object", "description": "step.schema.json 에서 id/task_id/status 를 제외한 정의." },
+        "step": {
+          "description": "Freeform 의 Step 정의 — step.schema.json 에서 id/task_id/status 를 뺀 정의($defs/definition)를 참조한다. Step 과 같은 검사를 받고, 정의되지 않은 필드(id, task_id, status 포함)는 거부된다.",
+          "$ref": "step.schema.json#/$defs/definition",
+          "unevaluatedProperties": false
+        },
         "skill": { "type": "string", "description": "name@version" },
         "params": { "type": "object" }
       },
-      "oneOf": [{ "required": ["step"] }, { "required": ["skill"] }]
+      "oneOf": [
+        { "required": ["step"], "properties": { "step": { "type": "object" } } },
+        { "required": ["skill"], "properties": { "skill": { "type": "string" } } }
+      ]
     },
     "rework": {
       "description": "action=rework. 대상 Step 과 무엇을 고쳐야 하는지.",

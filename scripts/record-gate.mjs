@@ -12,7 +12,7 @@
 //
 // 쓰기 전에 하는 검증(하나라도 실패하면 오류의 위치와 메시지를 출력하고 exit 1 — Gate 를 쓰지 않고 다른 어떤 파일도 바꾸지 않는다)
 //   1. Gate 파일이 아직 없다. Run 기록이 있고 그 id 가 <reviewer-run-id>, role 이 reviewer 다.
-//   2. 출력 파일이 schemas/reviewer-output.schema.json 에 맞는다(validate-data 와 같은 방식 — ajv 2020, schemas/ 를 직접 읽는다).
+//   2. 출력 파일이 schemas/reviewer-output.schema.json 에 맞는다(validate-data 와 같은 로더 — src/schema/registry.mjs 가 schemas/ 를 모두 등록한다).
 //      구조화되지 않은(문장) comments, packet_gaps 누락, 정의되지 않은 필드(annotations 포함)는 여기서 거부된다.
 //   3. class 가 A 인 지적이 하나라도 있으면 verdict 는 fail 이다(스키마가 강제하지 않는 규칙을 여기서 검사한다).
 //   4. 만들어질 Gate 전체(annotations 포함)가 schemas/gate-result.schema.json 에 맞고, YAML 로 썼다가 다시 읽어도 같은 값이다.
@@ -30,9 +30,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { parse, parseDocument, stringify } from 'yaml';
+import { loadSchemas } from '../src/schema/registry.mjs';
 
 const USAGE = 'usage: record-gate <task-dir> <step-id> <gate-id> <reviewer-run-id> <artifact-ref>[,...] [--annotations <file>]';
 
@@ -71,13 +70,8 @@ for (let i = 0; i < argv.length; i++) {
 if (positional.length !== 5 || positional.some((p) => !p)) usage();
 const [taskDir, stepId, gateId, runId, refs] = positional;
 
-// ---- 스키마 (validate-data 와 같은 방식) ----
-const schemaDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'schemas');
-const ajv = new Ajv2020({ allErrors: true, strict: false });
-addFormats.default(ajv);
-const validators = {};
-const validator = (name) =>
-  (validators[name] ??= ajv.compile(JSON.parse(readFileSync(join(schemaDir, `${name}.schema.json`), 'utf8'))));
+// ---- 스키마 (validate-data 와 같은 로더 — src/schema/registry.mjs) ----
+const { validator } = loadSchemas(join(dirname(fileURLToPath(import.meta.url)), '..', 'schemas'));
 function check(schema, value, label) {
   const validate = validator(schema);
   if (validate(value)) return;
