@@ -17,7 +17,7 @@ commands 는 첫 인자로 `CommandContext` 를 받는다. 전역 상태나 실�
 
 queries 는 `QueryContext`(`store` 만)를 받는다. 읽기에는 시계와 행위자가 필요 없다.
 
-Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0단계 운영 스크립트의 조립 모듈 — 6.5)에서 만들어 아래로 넘긴다.
+Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0단계 운영 스크립트의 조립 모듈 `scripts/lib/assemble.mjs` — 6.5)에서 만들어 아래로 넘긴다.
 
 ## 2. Store 오류의 처리
 
@@ -90,12 +90,12 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0�
 
 ## 6. 0단계의 기록을 쓰는 command 와 입구 (T-0006 의 설계)
 
-> 상태: **설계**(T-0006 step-001). 아직 구현되지 않았다 — 구현은 T-0006 의 뒤 Step 이고, 구현하며 정한 것은 그때 이 절을 고친다. 근거(실험과 실측)는 step-001 의 작업 노트에 있다.
+> 상태: **설계**(T-0006 step-001), **일부 구현**(T-0006 step-002 — 조립 지점과 빌드 캐시(6.5), 도구가 채우는 시각(아래 원칙), `appendEvents` 와 `append-events` 입구(6.2·6.3), 참조·gate id 의 문법 모듈(6.3)). 나머지 command 는 뒤 Step 에서 구현하며 이 절을 고친다. 근거(실험과 실측)는 그 Step 들의 작업 노트에 있다.
 
 0단계에서 Orchestrator 가 손으로 쓰던 yaml 과 운영 스크립트(append-events, propose-step, record-gate)가 쓰던 기록을 모두 아래 command 로 쓴다. 운영 스크립트(`scripts/*.mjs`)는 인자와 파일을 읽어 command 를 부르는 **입구**일 뿐이다(AGENTS.md 1번). 원칙:
 
 - **데이터 디렉터리의 모든 기록은 command 가 Store 의 commit 으로 쓴다.** 입구도 역할 세션도 데이터 디렉터리에 직접 쓰지 않는다(옮겨 가는 동안의 예외와 선택지는 6.4). Ledger(`ledger.md`)만 예외다 — Store 가 다루지 않고 command 도 쓰지 않는다(T-0006 의 non_goals). Ledger 를 고친 사실은 `ledger.updated` 로 `append-events` 가 남긴다.
-- **도구가 채우는 것**: 모든 시각(이벤트의 `at`, 엔티티의 `created_at`·`submitted_at`·`ended_at` — 한 command 안에서는 `ctx.clock` 을 한 번 읽은 같은 값), Task 안의 ID(`nextId`·`nextArtifactVersion`), 엔티티의 `status`, 이벤트의 `system_sha`(조립 지점이 devflow repo 의 HEAD 로 채운다), `commit_id`(Store), 이벤트의 `actor`(아래). **시각은 어느 입구도 인자로 받지 않는다.** 입력에 시각이 있으면(예: append-events 의 `at`) 거부한다.
+- **도구가 채우는 것**: 모든 시각(이벤트의 `at`, 엔티티의 `created_at`·`submitted_at`·`ended_at` — 한 command 안에서는 `ctx.clock` 을 한 번 읽은 같은 값이고, **초 단위 UTC**(`2026-09-19T11:51:35Z` — 밀리초를 버린다. 옛 기록과 같은 모양, T-0006 F-001 (3)). 만드는 곳은 `src/commands/time.ts` 의 `recordedAt(clock)` 하나이고 새 command 는 모두 그것을 쓴다. 기존 `createTask` 는 아직 밀리초까지 쓴다 — `issue-task` 를 구현하는 Step 이 맞춘다), Task 안의 ID(`nextId`·`nextArtifactVersion`), 엔티티의 `status`, 이벤트의 `system_sha`(조립 지점이 devflow repo 의 HEAD 로 채운다), `commit_id`(Store), 이벤트의 `actor`(아래). **시각은 어느 입구도 인자로 받지 않는다.** 입력에 시각이 있으면(예: append-events 의 `at`) 거부한다.
 - **Step 의 status 를 바꾸는 command 는 step.yaml 의 `status` 와 `step.status_changed` 를 같은 commit 에 쓴다.** 한 commit 에 전이가 둘이면(승인의 in_review→approved→closed) step.yaml 에는 마지막 `to` 를 쓴다. status 를 바꾸지 않는 command 는 `step.status_changed` 를 쓰지 않는다. 그래서 어느 command 뒤에도 "step.yaml 의 status = 그 Step 의 마지막 step.status_changed 의 to" 다.
 - **읽고 판단한 뒤 쓴다** — `createTask` 밖의 모든 command 는 4절의 패턴(`expectedLastSeq` 로 commit, `ConflictError` 면 다시 읽고 다시 판단)을 쓴다. 새 ID 는 `ChangeInput` 의 함수 안에서 `nextId` 로 받는다.
 - **아무것도 쓰기 전에 거부한다** — 거부 조건(6.3, 7절)은 모두 commit 전에 검사한다. Store 가 막는 것(불변 kind 와 blob 의 덮어쓰기, ID 모양, 스키마)은 Store 의 오류가 그대로 올라온다(2절). 어느 쪽이든 "아무것도 기록되지 않았다" 이다.
@@ -175,7 +175,9 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0�
 **`completeTask(ctx, { taskId, decisionId, merge: { repo, branch, sha, method }, postMergeCheck, note? })`** — 입구 `complete-task <data-dir> <task-id> --decision D-NNN --merge-sha <sha> [--merge-method <text>] --post-merge-check <text> --actor human:<id>`.
 - 한 commit: task.yaml(status done) + `task.done`(data.confirmed = decisionId, data.merge, data.post_merge_check, data.note). 이 이벤트의 system_sha 는 도구가 채우는 devflow 의 HEAD 다 — merge 뒤의 main 에서 부르면 그것이 merge 뒤의 SHA 다(0단계의 규칙과 같다).
 
-**`appendEvents(ctx, { taskId, events })`** — 입구 `append-events <data-dir> <task-id> <events.json>`(이름 유지). 받는 이벤트는 `{ type, step_id?, run_id?, ref?, data? }` 의 배열이고 모두 한 commit 이다. 도구가 채우는 것: actor(system — 입구에 `--actor human:<id>` 가 있으면 그것), at, system_sha, seq·task_id·commit_id(Store).
+**`appendEvents(ctx, { taskId, events })`** — **구현됨**(`src/commands/append-events.ts`, T-0006 step-002). 입구 `append-events <data-dir> <task-id> <events.json> [--actor human:<id>]`(이름 유지). 받는 이벤트는 `{ type, step_id?, run_id?, ref?, data? }` 의 배열(하나 이상)이고 모두 한 commit 이다. 도구가 채우는 것: actor(`ctx.actor` — 입구는 `--actor human:<id>` 가 있으면 그것, 없으면 system), at(`recordedAt` — 모든 이벤트가 같은 값), system_sha(조립 지점이 채운 devflow 의 HEAD), seq·task_id·commit_id(Store). 받는 type 과 거부는 6.3.
+- 4절의 패턴이다: 마지막 seq 를 읽고, Task 의 status 와 `step_id`·`run_id` 가 그 Task 에 있는지 본 뒤 `expectedLastSeq` 로 commit 한다. `ConflictError` 면 다시 읽고 다시 판단한다(5번까지, 그 뒤에는 `ConflictError` 를 올린다). `CommitOutcomeUnknownError` 는 3절의 `confirmOutcome` 으로 확인한다.
+- ledger.md 는 쓰지 않는다. Ledger 는 편집 도구로 고치고 그 사실을 `ledger.updated` 로 남긴다.
 
 ### 6.3 아무것도 쓰기 전에 거부하는 것
 
@@ -184,13 +186,14 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0�
 - Task 가 없다(`TaskNotFoundError`), 또는 Task 가 open 이 아니다(done·aborted 뒤에는 `appendEvents` 의 `ledger.updated` 말고는 쓰지 않는다).
 - 7절의 전이표에 없는 status 전이. command 는 현재 status 를 읽고(4절) 표에 있는 전이만 한다. Store 는 가변 기록의 교체를 막지 않으므로(Run·Feedback·Step 을 같은 key 로 쓰면 오류 없이 바뀐다 — step-001 의 실험) 이 검사는 command 의 몫이다.
 - 스키마 위반(Store 의 `SchemaViolationError(write)`).
+- command 가 스스로 거부하는 것(위의 입력 검사, 아래 표와 command 별 조건)은 `RejectedInputError`(`src/commands/errors.ts`, `reasons` 에 입력의 위치를 붙인 까닭을 모두 모은다)다. Store 의 오류는 2절대로 바꾸지 않고 올린다(없는 Task 는 `TaskNotFoundError`). 입구는 `RejectedInputError` 와 Store 의 오류를 exit 1, 인자의 모양이 틀린 것(옛 `<task-dir>` 모양 포함)을 exit 2 로 끝낸다 — 어느 쪽도 아무것도 쓰지 않았다.
 
 T-0006 AC4 의 넷:
 
 | 거부 | 어디서 | 방법 |
 |---|---|---|
-| G-NNN 모양이 아닌 gate id (`G1`, `g-009`, `G-0012`, 파일 이름이 될 수 없는 것) | 입구와 `recordGate` | 입구가 `^G-\d{3,}$` 이고 정규형(0 채움 3자리, 999 뒤로는 자릿수가 는다)인지 먼저 본다. Store 도 쓸 때 `InvalidChangeError` 로 막는다(실험: `id G1 is not of the form G-NNN`) — 입구의 검사는 오류 문구를 사람에게 맞추려는 것이다. 다음에 발급될 id 와 다르면 거부(6.2) |
-| `artifact://<task>/<step>/<name>@v<N>` 가 아닌 artifact 참조(로컬 경로 포함) | `recordGate`, `requestRevision`, `approveStep`, `addFeedback`(target) | 참조마다 Store 의 `parseArtifactRef` 와 같은 문법으로 나누고, task·step 이 그 command 의 Task·Step 과 같고, 그 버전의 Artifact 가 있는지 `get('artifact')` 로 본다. **Store 는 GateResult 의 `artifact_refs` 와 Feedback 의 `target.artifact_ref` 의 모양을 보지 않는다** — 실험에서 `C:\x` 가 섞인 artifact_refs 의 Gate 가 기록되었다. Gate 와 승인은 그 이름의 가장 새 버전만 받는다 |
+| G-NNN 모양이 아닌 gate id (`G1`, `g-009`, `G-0012`, 파일 이름이 될 수 없는 것) | 입구와 `recordGate` | 입구가 정규형 G-NNN(0 채움 3자리, 999 뒤로는 자릿수가 는다)인지 먼저 본다 — 문법은 `src/store/refs.ts` 의 `isGateId`(Store 의 파일 구현체가 쓰는 `isCanonicalId` 와 같은 함수, T-0006 step-002 에서 파일 구현체 밖으로 올렸다). Store 도 쓸 때 `InvalidChangeError` 로 막는다(실험: `id G1 is not of the form G-NNN`) — 입구의 검사는 오류 문구를 사람에게 맞추려는 것이다. 다음에 발급될 id 와 다르면 거부(6.2) |
+| `artifact://<task>/<step>/<name>@v<N>` 가 아닌 artifact 참조(로컬 경로 포함) | `recordGate`, `requestRevision`, `approveStep`, `addFeedback`(target) | 참조마다 `src/store/refs.ts` 의 `parseArtifactRef`(Store 의 파일 구현체가 쓰는 것과 같은 함수 — 사본이 없다. 드라이브 문자, 역슬래시, 빈 조각, `..` 는 어느 조각에도 들어갈 수 없다)로 나누고, task·step 이 그 command 의 Task·Step 과 같고, 그 버전의 Artifact 가 있는지 `get('artifact')` 로 본다. **Store 는 GateResult 의 `artifact_refs` 와 Feedback 의 `target.artifact_ref` 의 모양을 보지 않는다** — 실험에서 `C:\x` 가 섞인 artifact_refs 의 Gate 가 기록되었다. Gate 와 승인은 그 이름의 가장 새 버전만 받는다 |
 | 이미 있는 Gate·Artifact 버전·Run·Feedback 의 덮어쓰기 | Store 와 command | Gate·Artifact 버전·Decision·blob 은 Store 가 불변으로 막는다(`AlreadyExistsError` — 실험에서 내용이 같아도 거부). Run·Feedback 은 Store 에서 가변이므로 **command 가 새 id 를 `nextId` 로만 만들고**(같은 id 를 두 번 만들 길이 없다), 기존 Run 을 고치는 command(`completeRun`, `recordGate`, `recordDecision`, `failRun`)는 그 Run 이 `submitted` 이고 role·step 이 맞을 때만 쓴다 — completed·failed 인 Run 에 다시 쓰면 거부. Feedback 을 고치는 command 는 없다(`response` 처럼 나중에 채우는 필드는 이 Task 의 범위가 아니다). 다른 자리의 같은 id 는 Store 가 막는다 |
 | 허용되지 않는 status 전이 | status 를 바꾸는 모든 command | 7절의 표. 같은 Step 의 status 를 두 command 가 동시에 바꾸려 하면 `expectedLastSeq` 가 늦은 쪽을 `ConflictError` 로 돌려보내고, 다시 읽은 status 로 다시 판단한다(4절) |
 
@@ -202,7 +205,7 @@ command 별로 더 거부하는 것:
 - `recordGate`: Run 이 reviewer 가 아니거나 다른 Step 의 것이다. Reviewer 출력의 검증 1~5. annotations 가 빈 배열이다.
 - `approveStep`: official gate 가 pass 가 아니다. 그 Gate 의 artifact_refs 가 승인 대상(각 이름의 가장 새 버전)을 모두 담지 않는다.
 - `completeTask`: decisionId 의 Decision 이 action done 이 아니다. 닫히지 않은 Step 이 있다. merge sha 가 40자(또는 64자) 16진 소문자가 아니다.
-- `appendEvents`: type 이 command 가 쓰는 이벤트다. 받는 것은 `ledger.updated` 처럼 **짝이 되는 엔티티가 없거나 이 command 들이 다루지 않는 이벤트**뿐이다(허용 목록은 구현 때 확정한다 — 후보 `ledger.updated`, `run.message_sent`, `decision.answered`, `task.requirement_added`). `step.status_changed`·`run.*`·`gate.completed` 를 여기로 넣을 수 있으면 "step.yaml 의 status 와 마지막 step.status_changed 가 같다" 가 깨진다.
+- `appendEvents`(구현됨): type 이 허용 목록 밖이다. 받는 것은 **짝이 되는 엔티티가 없어 다른 command 가 쓰지 않는 이벤트** 넷뿐이다 — `ledger.updated`, `run.message_sent`, `decision.answered`, `task.requirement_added`(`APPENDABLE_EVENT_TYPES`). 근거: event 스키마의 타입 스무 가지 가운데 나머지 열여섯은 짝이 되는 기록이나 status 와 한 commit 으로 쓰는 command 가 6.1 에 있거나(`task.created`·`task.done`, `decision.made`, `step.proposed`·`step.defined`·`step.status_changed`, `run.submitted`·`run.completed`·`run.failed`, `artifact.version_added`·`artifact.approved`, `feedback.added`, `gate.completed`), 엔티티의 status 를 바꾸는 이벤트라 그 status 와 함께 써야 한다(`task.aborted`, `step.cancelled`, `run.cancelled` — 아직 command 가 없다. 필요해지면 command 로 더한다). 넷은 기록할 엔티티가 없다(실행 중 지시·요구사항·답의 내용은 `addFeedback` 의 Feedback 이고, 이 이벤트는 그 사실만 남긴다). 기존 기록(데이터 repo 3f8ef30 의 T-0001~T-0006 — 이벤트 478줄, 타입 열네 가지)에서 이 넷 가운데 쓰인 것은 `ledger.updated`(66줄)뿐이다. `step.status_changed`·`run.*`·`gate.completed`·`task.done` 을 여기로 넣을 수 있으면 "step.yaml 의 status 와 마지막 step.status_changed 가 같다" 가 깨진다. 그 밖에: 입력이 빈 배열이거나 배열이 아니다, 도구가 채우는 필드(`at`, `seq`, `task_id`, `commit_id`, `system_sha`, `actor`)나 모르는 필드가 있다, `step_id`·`run_id` 가 그 Task 에 없다, Task 가 open 이 아닌데 `ledger.updated` 가 아닌 것이 있다. 하나라도 걸리면 전부 거부한다.
 
 ### 6.4 역할 세션의 출력과 deterministic 결과 — 데이터 디렉터리 밖에서 받아들인다
 
@@ -218,11 +221,14 @@ step-001 의 실험: Store 는 이미 있는 blob 의 key 에 쓰는 commit 을 
 
 운영 스크립트는 `.mjs` 이고 Node 22.15 는 TypeScript 를 그대로 import 하지 못한다(`--experimental-strip-types` 는 `src/store/file/` 의 생성자 매개변수 속성에서 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` 로 멈추고, `.js` 로 적은 import 도 `.ts` 로 풀지 못한다). 정한 방법:
 
-- **조립 지점 한 곳**(`scripts/lib/` 의 모듈 하나 — 이름은 구현 때 정한다)이 빌드를 준비하고, `FileStore` 를 한 번 만들어 `CommandContext`(store, `systemClock`, actor, systemSha)를 만든다. 입구는 이 모듈에서 command 와 Context 를 받아 command 만 부른다. 파일 구현체를 여는 곳은 이 모듈과 검증 스크립트 `check-store-read` 뿐이다(AGENTS.md 1·2번 — 테스트로 확인한다).
-- **빌드는 소스의 내용 해시로 확인하는 캐시다.** `src/**/*.{ts,mts,mjs}`, `tsconfig.json`, `package-lock.json` 의 내용 해시를 빌드 디렉터리(`node_modules/.cache/` 아래 — git 이 무시하고, 거기서 의존성과 `schemas/` 를 찾는다)의 표식과 비교해 같으면 그 빌드를 쓰고, 다르거나 없으면 `tsc -p . --noCheck` 로 새 임시 디렉터리에 빌드하고 `src/**/*.mjs` 를 복사한 뒤 제자리로 바꿔 넣는다. 타입 검사는 `npm run typecheck` 의 일이다.
-  - 옛 빌드를 쓰는 위험: 해시가 소스의 내용이므로 소스가 한 글자라도 바뀌면 다시 빌드한다. 파일 시각에 기대지 않는다(checkout 이 시각을 믿을 수 없게 만든다). 스키마는 빌드에 들어가지 않고 실행 때 repo 의 `schemas/` 를 읽으므로(registry.mjs) 해시에 넣지 않는다.
-  - 동시에 부를 때: 빌드는 임시 이름의 디렉터리에 하고 rename 으로 바꿔 넣으므로 반쯤 된 빌드를 읽지 않는다. rename 이 이미 있는 빌드와 부딪히면 표식을 다시 읽어 같으면 그것을 쓴다.
+- **조립 지점 한 곳 — `scripts/lib/assemble.mjs` 의 `assemble({ dataDir, actor })`**(T-0006 step-002 에서 구현)이 빌드를 준비하고(`scripts/lib/build.mjs`), 빌드에서 `src/commands/index.js` 와 `src/store/file/index.js` 를 import 해 `FileStore` 를 한 번 만들고 `CommandContext`(store, `systemClock`, actor — 기본 `system`, systemSha — `git rev-parse HEAD` 로 읽은 devflow 의 HEAD, 읽지 못하면 아무것도 하지 않고 멈춘다)를 만들어 `{ commands, ctx }` 로 돌려준다. 입구는 이것을 받아 `commands.*(ctx, …)` 만 부른다. scripts/ 에서 파일 구현체를 여는 곳은 이 모듈과 검증 스크립트 `check-store-read` 뿐이고(validate-data 는 이름 규칙 모듈 `src/store/file/names.mjs` 만 import 한다), 입구는 `./lib/assemble.mjs` 와 `node:` 모듈만 import 하고 Store 를 직접 부르지 않는다 — `tests/architecture.test.ts` 가 확인한다(AGENTS.md 1·2번).
+- **빌드는 소스의 내용 해시로 확인하는 캐시다**(`scripts/lib/build.mjs` 의 `prepareBuild`). 빌드 키 = sha256(tsc 인자, `scripts/lib/` 의 `.mjs` 전부 — 로더 자신과 조립 지점, `tsconfig.json`, `package-lock.json`, `src/**/*.{ts,mts,mjs}` 의 상대 경로와 내용). 빌드는 `<cache>/<키 앞 32자>/`(기본 `<cache>` = `node_modules/.cache/devflow-entry` — git 이 무시하고, 거기서 위로 올라가며 의존성과 `schemas/` 를 찾는다)에 있고, 그 안의 `stamp.json` 의 키가 같으면 그 빌드를 쓴다. 없으면 `<cache>/.tmp-<pid>-<난수>/` 에 `node <typescript>/bin/tsc -p . --noCheck --outDir …` 로 빌드하고 `src/**/*.mjs` 를 복사하고 `stamp.json` 을 마지막에 쓴 뒤 rename 으로 제자리에 넣는다. 새 빌드를 넣은 뒤 다른 키의 옛 빌드와 한 시간 넘은 남의 임시 디렉터리를 지운다. 타입 검사는 `npm run typecheck` 의 일이고, `--noCheck` 라 생성 타입(`src/types/generated`) 없이도 빌드된다(`npm run gen` 에 기대지 않는다 — 테스트가 생성 타입을 뺀 사본으로 확인한다).
+  - 옛 빌드를 쓰는 위험: 키가 소스의 내용이므로 소스(.mjs 포함)·tsconfig·lock·로더·tsc 인자 가운데 하나라도 바뀌면 다른 자리에 다시 빌드한다. 파일 시각에 기대지 않는다(checkout 이 시각을 믿을 수 없게 만든다). 스키마는 빌드에 들어가지 않고 실행 때 repo 의 `schemas/` 를 읽으므로(registry.mjs) 키에 넣지 않는다.
+  - 동시에 부를 때: 제자리에는 rename 으로만 들어가므로 반쯤 된 빌드를 읽지 않는다. 둘이 같은 키로 동시에 빌드하면 늦은 쪽의 rename 이 부딪히고, 제자리의 `stamp.json` 이 같은 키면 그것을 쓰고 자기 임시 디렉터리를 지운다(`raced`). stamp 가 다르면 오류로 멈춘다. 테스트가 빈 캐시에서 두 입구를 동시에 띄워(rename 전에 기다리게 하는 테스트용 환경 변수 `DEVFLOW_BUILD_HOLD_MS`) 둘 다 빌드했고 빌드 시간이 겹쳤으며(`DEVFLOW_BUILD_TRACE` 의 시각) 하나는 `built`, 하나는 `raced` 로 같은 빌드를 써서 둘 다 기록했음을 확인한다.
+  - 테스트는 입구의 캐시를 쓰지 않는다: `DEVFLOW_BUILD_CACHE` 로 자기 캐시 디렉터리를 주고 끝에 지운다.
+  - **키가 보지 못하는 것(한계)**: 설치된 `node_modules` 가 `package-lock.json` 과 다른 경우(`npm ci` 를 하지 않고 lock 만 바뀐 checkout 등 — lock 이 같으면 설치가 달라도 같은 키다), Node 와 tsc 의 실행 파일 자체(TypeScript 의 판은 lock 으로 본다), `src/` 밖에서 빌드에 들어가는 것(tsconfig 의 `include` 에 있는 `tests/` — 입구가 쓰지 않는다). 또 다른 키의 옛 빌드를 지우는 것은 소스가 바뀐 순간에 옛 키로 이미 돌고 있던 입구와 부딪힐 수 있다(그 입구의 import 가 실패할 수 있다 — 다시 부르면 된다. 실행해 보지 않았다).
   - 빌드물은 commit 하지 않는다(`node_modules/` 아래). 생성 타입도 만들지 않는다.
+  - 구현 뒤의 실측(Windows 11, Node 22.15.1 — `append-events` 한 번, 프로세스 전체, 세 번씩): 빈 캐시에서 약 0.52 s, 캐시가 맞을 때 약 0.33 s(빈 `node -e 0` 은 약 0.12 s). check-store-read 와 `tests/global-setup.ts` 는 아직 각자 빌드한다(이 로더로 합치는 것은 backlog 의 "빌드 코드 통합").
 - 실측(Windows 11, Node 22.15.1, TypeScript 7.0.2 — 한 번 부르는 프로세스 전체, 데이터 사본의 `list('step')` 한 번 포함. 세 번씩 재어 비슷했다):
 
   | 방법 | 한 번 부르는 시간 |
