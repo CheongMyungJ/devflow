@@ -24,8 +24,8 @@
 
 역할별 HITL 후속 작업은 PR #4의 병합과 clean main `c5c1ae8`을 확인하고 만든 `codex/role-hitl-question-cli`의 변경이다. 아래 PR #4 검증 이력과 이번 HITL 검증을 구별한다. 후속 브랜치의 병합 여부는 Git과 PR에서 다시 확인한다.
 
-- **현재 검증:** Windows / Node.js 22.15.1, `npm run typecheck` 통과, `npm test` **53개 파일·735개 통과**. 역할별 승인·수정·재검토, 중복/오래된 응답, 새 Artifact 버전, 질문/승인 경합, 시스템 검증·실패 회수·Step 간 증거 분리와 질문 AI 설정 계층·CLI 인자를 포함한다. Windows의 프로세스 기반 테스트 동시 실행은 4개로 제한했다.
-- **실제 질문 콘솔/권한:** Codex **0.154.0**, 인계 **454 ms**, stdin/stdout/stderr TTY 정상, 질문 자료·Task·Store 표본 쓰기 3건 차단. model/reasoning 옵션을 포함한 대화형 CLI 인자도 확인했다. 재현은 `node tests/runner/question-smoke.mjs`이며 **모델 호출이나 질문 대화 검증은 아니다**.
+- **현재 검증:** Windows / Node.js 22.15.1, `npm run typecheck` 통과. 질문 backend 확장 후 `node node_modules/vitest/vitest.mjs run --testNamePattern '^(?!.*(?:opencode|OpenCode)).*$'`로 **54개 파일·722개 통과·18개 제외**. 사용자의 OpenCode 검증 제외 요청에 따라 해당 어댑터/입구 테스트를 건너뛰었다. 이전 전체 검사는 53개 파일·735개 통과였다. 현재 검사는 역할별 승인·수정·재검토, 중복/오래된 응답, 새 Artifact 버전, 질문/승인 경합, 시스템 검증·실패 회수·Step 간 증거 분리, 질문 AI 설정과 Claude 읽기 도구·인계 계약을 포함한다. Windows의 프로세스 기반 테스트 동시 실행은 4개로 제한했다.
+- **실제 질문 콘솔/권한:** Codex **0.154.0**, 공통 인계 분리 후 재검사 **470 ms**, stdin/stdout/stderr TTY 정상, 질문 자료·Task·Store 표본 쓰기 3건 차단. model/reasoning 옵션을 포함한 대화형 CLI 인자도 확인했다. 재현은 `node tests/runner/question-smoke.mjs`다. Claude **2.1.278**은 질문 인자와 `--help`를 함께 실행해 옵션 파싱을 확인했다. **모델 호출이나 질문 대화 검증은 아니다**.
 - **병합 기준 이력:** PR #3 기준 46개 파일·678개, PR #4 기준 49개 파일·707개 테스트가 통과했다. 실제 Git과 CLI 대역으로 종료 SHA, 입력/cwd/설정, 출력 위반·실패·취소·중복·unknown·호출자 종료 후 회수와 기존 변경 보존을 검사했다.
 - **과거 실제 모델 검증:** Codex **0.154.0**·Claude Code **2.1.278**의 Worker를 각각 실행했고, PR #4에서는 각 Worker → 독립 Reviewer 흐름도 검증했다. 파일 생성, 문서 버전 전달, 호출자 종료 후 회수와 Gate 기록을 확인했다. 자동 테스트 수에는 포함하지 않으며 초기 실패를 성공 횟수로 세지 않는다.
 - **미검증:** 실제 질문 모델 대화, OpenCode 실제 연동, 여러 실제 모델 역할을 연결한 전체 Orchestrator의 강제 종료/복구, 다른 OS·모든 모델/CLI 버전. 대역 검사나 콘솔 인계 성공으로 이 범위까지 완료했다고 판단하지 않는다.
@@ -54,7 +54,7 @@
 
 ## 다음 작업 순서
 
-역할별 HITL, 독립 질문 CLI와 질문 AI 설정은 구현했다. 현재 계약은 [ADR-0022](adr/0022-role-hitl-and-independent-questions.md)·[ADR-0023](adr/0023-question-ai-settings.md), 운영 방법은 [사용법](execution-usage.md)에 있다. 다음 후보는 아래의 **남은 범위**이며, 이미 구현된 기능을 다시 개발하는 요청이나 새 Task 발행을 뜻하지 않는다.
+역할별 HITL, 독립 질문 CLI와 질문 AI 설정은 구현했다. Codex·Claude Code·OpenCode 질문 어댑터를 연결했으며 OpenCode는 사용자 요청으로 공식 문서 기반 구현만 하고 실행 검증은 하지 않았다. 현재 계약은 [ADR-0022](adr/0022-role-hitl-and-independent-questions.md)·[ADR-0023](adr/0023-question-ai-settings.md)·[ADR-0024](adr/0024-question-backend-adapters.md), 운영 방법은 [사용법](execution-usage.md)에 있다. 다음 후보는 아래의 **남은 범위**이며, 이미 구현된 기능을 다시 개발하는 요청이나 새 Task 발행을 뜻하지 않는다.
 
 | 순서 | 후보 | 남은 중심 과제 | 선행 조건·분리할 범위 |
 |---|---|---|---|
@@ -150,7 +150,7 @@
 - **구현:** `execution` JSON/YAML 입구와 `hitl` 메뉴가 commands/queries만 호출한다. 역할 결과·버전·승인/수정 선택과 독립 질문 인계를 제공하고 구조 테스트로 경계를 검사한다. 통합 `task ...` 명령 체계와 관리형 실행 관찰 화면은 후속이다.
 - Task 전체의 “내 입력 대기” 조회, 진행 중 Store commit의 읽기 대기/StoreBusyError 안내를 만든다. 교차 Task 조회와 lock 안 읽기가 필요하면 Store 인터페이스의 확장안을 실제 사용 사례로 검증한다.
 - 검토에 필요한 내용은 무엇이 바뀌었는지, 사람이 정할 것과 선택지/권고/책임, 미확인·남는 한계, 상세 근거다. 원래 성공 기준과의 대조, 재작업 이유/시작 버전/전체 재검토, 생략한 검증도 보여 준다.
-- **질문 지원 경계:** Windows/Codex 0.154.0, 고정 버전/SHA, 별도 native home과 read-only 권한을 사용한다. 실행 인계 뒤 즉시 복귀하며 대화·종료·답변을 관리하지 않는다. 별도 로그인/초기 설정이 필요할 수 있다. AI 설정은 R01, 책임 범위는 ADR-0022에 있다. 다른 backend/환경과 실제 모델 대화 검증은 후속이다.
+- **질문 지원 경계:** Windows/Codex 0.154.0·Claude Code 2.1.278·OpenCode 1.x 어댑터, 고정 버전/SHA, 별도 native 설정과 읽기 전용 옵션을 사용한다. OpenCode는 공식 가이드 기반으로만 구현했고 설치·실행·권한 동작 검증은 하지 않았다. 실행 인계 뒤 즉시 복귀하며 대화·종료·답변을 관리하지 않는다. 별도 로그인/초기 설정이 필요할 수 있다. AI 설정은 R01, 책임 범위는 ADR-0022/0024에 있다. 다른 환경과 실제 모델 대화 검증은 후속이다.
 - **미결정:** decisions_needed·newly_decided·성공 기준별 결과 등 정식 출력 재료, 결정론적 렌더링에 출처 있는 AI 요약을 덧붙일지. 현재 대화 Orchestrator가 파일들을 읽고 설명하는 일을 결정론적 시스템이 저절로 할 수 있다고 가정하지 않는다.
 - **완료 기준:** AI가 요약을 다시 쓰지 않아도 사람이 승인 대상 버전·검사 실패·결정할 내용·한계를 확인하고 응답할 수 있는 최소 화면/텍스트 예제와 테스트. 같은 재료는 R12 발행에 재사용한다.
 

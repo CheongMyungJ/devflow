@@ -5,8 +5,12 @@ import { LocalRunner } from '../local/runner.js';
 import { cliVersion, resolveCli } from '../local/cli.js';
 import { workerPrompt } from '../local/prompt.js';
 import type { CliCommand } from '../local/adapter.js';
+import type { QuestionRequest } from '../types.js';
+import { openOpenCodeQuestion } from './question.js';
 
 export class OpenCodeRunner extends LocalRunner {
+  private readonly questionRoot: string;
+  private readonly questionCli: CliCommand;
   constructor(root: string, cli: CliCommand = resolveCli('opencode', 'opencode-ai')) {
     super(root, { id: 'opencode', version: cliVersion(cli),
       capabilities: { supportsResume: false, supportsLiveMessage: false },
@@ -30,5 +34,8 @@ export class OpenCodeRunner extends LocalRunner {
         };
       },
     });
+    this.questionRoot = root;
+    this.questionCli = cli;
   }
+  openQuestion(request: QuestionRequest) { return openOpenCodeQuestion(this.questionRoot, this.questionCli, request); }
 }

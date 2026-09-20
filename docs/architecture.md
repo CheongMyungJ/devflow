@@ -34,7 +34,7 @@
 | commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로. 기록은 모두 command 가 Store 의 commit 으로 쓴다. 규약 `docs/design/commands.md` (아래 2.2) | in-process 함수. 0단계에는 운영 스크립트(`scripts/*.mjs`, 입구)가 조립 지점을 거쳐 부른다 | HTTP API |
 | State Store | Task/Step/Decision/Feedback/GateResult/Run/Artifact 와 이벤트, blob 저장. Task 안의 ID 발급, 불변 기록의 덮어쓰기 방지, commit 식별자. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` (아래 2.1) | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
 | Orchestrator | 멱등 `advance(task_id)`, 역할별 HITL | `execution` 요청 또는 `hitl` 메뉴로 호출 | 이벤트가 호출 |
-| Role Runner | `prepare / submit / inspect` 비동기 실행·결과 회수 | 공통 detached supervisor + fake / Claude Code / Codex / OpenCode CLI Worker. 신규 write만 지원 | job queue + 컨테이너 |
+| Role Runner | `prepare / submit / inspect` 비동기 실행·결과 회수 | 공통 detached supervisor + fake / Claude Code / Codex / OpenCode. 관리형 네 역할과 별도 질문 인계 | job queue + 컨테이너 |
 | Workspace | Task 별 branch/worktree 준비·조회·중단 후 대조 | `src/workspace/types.ts` 뒤의 로컬 Git 구현, `prepare-workspace`·`workspace-status` | 서버 clone, remote 경유 |
 
 ### 2.1 State Store 와 스키마 로더
@@ -176,9 +176,9 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - 사용자 결정에 따라 모든 역할은 신규 세션이고 resume는 미지원이다. backend session ID는 진단 연결을 위해 수집한다. 완료 Run은 수집 영수증이므로 다시 수집해도 Artifact/Gate/Decision을 추가하지 않는다.
 - `startWorkflow / advance / respondHitl / getWorkflow`가 역할별 수용과 재작업을 연결한다. Task의 진행 커서와 action 예약·HITL 응답은 사건과 같은 CAS commit에 기록한다. 역할 결과 수집 후 커서 갱신 전에 중단되면 완료 Run에서 복구한다. 자동 흐름이 시작된 Task에서는 개별 시작/기록 전용 전이로 HITL을 우회하지 못한다.
 - `src/verification/types.ts` 뒤의 로컬 Verifier는 Task worktree에서 선언된 시스템 명령을 비동기 실행한다. 준비 → 영구 시작 표식 → supervisor 영수증을 사용하며 unknown을 자동 재실행하지 않는다. `.devflow.yaml`의 `@명령`과 timeout을 지원한다. setup/exclusive 조율은 지원하지 않으며 선언된 경우 명시적으로 거부한다.
-- `Runner.openQuestion`은 관리형 실행과 별도다. 고정 문서/Git 자료를 독립 디렉터리에 제공하고 Windows 콘솔로 인계한 즉시 반환한다. 질문 Run·잠금·종료 감시·답변 수집은 없다. Windows/Codex 0.154.0만 지원하며 개별 native 설정 디렉터리, 읽기 전용 sandbox, 승인 금지와 플러그인/훅 제한을 적용한다. 인증 정보는 복사하지 않아 native 창에서 인증/초기 설정이 필요할 수 있다. 초기 질문·대상·인계 시도/결과만 이벤트로 남긴다.
+- `Runner.openQuestion`은 관리형 실행과 별도다. 고정 문서/Git 자료를 독립 디렉터리에 제공하고 Windows 콘솔로 인계한 즉시 반환한다. 질문 Run·잠금·종료 감시·답변 수집은 없다. Codex 0.154.0·Claude Code 2.1.278·OpenCode 1.x 질문 어댑터를 제공한다(ADR-0024). 공통 자료 준비/콘솔 인계는 `runner/local/question`, 각 CLI의 권한·옵션은 개별 어댑터가 담당한다. Codex는 read-only sandbox, Claude는 restricted와 읽기 도구만 허용, OpenCode는 문서 기반 전용 agent 권한을 적용한다. 인증 파일은 복사하지 않아 native 창에서 인증/초기 설정이 필요할 수 있다. 초기 질문·대상·인계 시도/결과만 이벤트로 남긴다.
 - 질문의 backend/model/reasoning은 `roles.question`으로 기존 전역·프로젝트·작업 유형·확정 Step·명시 입력 계층에서 선택한다(ADR-0023). 대상 Run의 AI 설정을 상속하지 않는다. 실효값/출처는 초기 질문 사건에 고정한다. 공통 defaults의 관리형 실행 옵션은 질문에서 제외하고 질문 전용 설정에는 허용하지 않는다. question은 설정 선택자이며 새로운 관리형 Run 역할이 아니다.
-- 관리형 read 사후검사는 완전한 OS 격리가 아니다. 질문 backend는 별도로 권한 제한을 검사한다. 실제 모델 질문 대화 및 OpenCode 실제 모델 연동은 미검증이다.
+- 관리형 read 사후검사는 완전한 OS 격리가 아니다. 질문은 Codex sandbox 표본 쓰기 차단, Claude 옵션/대역 계약을 검사한다. OpenCode는 사용자 요청에 따라 공식 문서로만 구현하며 실행·권한 동작은 검사하지 않는다. 실제 모델 질문 대화도 미검증이다.
 
 ## 9. 여러 프로젝트와 동시 진행
 

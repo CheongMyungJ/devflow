@@ -5,14 +5,18 @@ import { LocalRunner } from '../local/runner.js';
 import { cliVersion, resolveCli } from '../local/cli.js';
 import { workerPrompt } from '../local/prompt.js';
 import type { CliCommand } from '../local/adapter.js';
+import type { QuestionRequest } from '../types.js';
+import { openClaudeQuestion } from './question.js';
+import { validateClaudeModelSettings } from './settings.js';
 
 export class ClaudeCodeRunner extends LocalRunner {
+  private readonly questionRoot: string;
+  private readonly questionCli: CliCommand;
   constructor(root: string, cli: CliCommand = resolveCli('claude', '@anthropic-ai/claude-code')) {
     super(root, { id: 'claude-code', version: cliVersion(cli),
       capabilities: { supportsResume: false, supportsLiveMessage: true },
       validate(request) {
-        if (request.reasoning && (!request.model || !/^(sonnet|opus|fable|claude-(sonnet|opus|fable))/.test(request.model) || !['low', 'medium', 'high', 'xhigh', 'max'].includes(request.reasoning))) throw new ExecutionError('unsupported Claude model/reasoning combination; specify a supported model and effort');
-        if (request.reasoning && ['xhigh', 'max'].includes(request.reasoning) && request.model?.includes('sonnet')) throw new ExecutionError('unsupported Sonnet effort; use low, medium or high');
+        validateClaudeModelSettings(request);
         if (request.isolation === 'strict') throw new ExecutionError('strict environment isolation is not verified for Claude Code; project isolation is available');
       },
       launch(request, dir) {
@@ -28,5 +32,8 @@ export class ClaudeCodeRunner extends LocalRunner {
           liveInput: request.role !== 'reviewer', protocolModule: fileURLToPath(new URL('./protocol.mjs', import.meta.url)) };
       },
     });
+    this.questionRoot = root;
+    this.questionCli = cli;
   }
+  openQuestion(request: QuestionRequest) { return openClaudeQuestion(this.questionRoot, this.questionCli, this.version, request); }
 }

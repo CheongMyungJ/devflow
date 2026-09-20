@@ -26,7 +26,7 @@ roles:
     reasoning: medium
 ```
 
-모델 이름은 사용 계정·CLI가 지원하는 값으로 지정한다. backend별 추론 옵션은 의미와 지원 범위가 다르며 미지원 값은 거부한다. OpenCode의 추론 variant는 아직 검증하지 않았으므로 지정하면 오류다. 설정을 생략한 기존 관리형 역할의 fake 사용법도 유지한다. 독립 질문의 제품 기본 backend는 codex이며 질문 대상 역할의 모델을 자동 재사용하지 않는다.
+모델 이름은 사용 계정·CLI가 지원하는 값으로 지정한다. backend별 추론 옵션은 의미와 지원 범위가 다르며 미지원 값은 거부한다. 관리형 OpenCode의 추론 옵션은 미지원이다. 독립 질문의 OpenCode reasoning 지원 범위는 아래 표를 따른다. 설정을 생략한 기존 관리형 역할의 fake 사용법도 유지한다. 독립 질문의 제품 기본 backend는 codex이며 질문 대상 역할의 모델을 자동 재사용하지 않는다.
 
 프로젝트의 `.devflow.yaml`에서는 같은 내용을 `execution:` 아래에 둔다. 전역보다 프로젝트 설정, 프로젝트보다 확정된 Step 설정, 그보다 이번 실행의 명시 입력이 우선한다. 작업 유형별 설정은 `task_types.<유형>.<역할>`에 둔다. 설정 필드의 정확한 계약은 schemas의 description을 따른다.
 
@@ -157,7 +157,7 @@ HITL 메뉴의 기본 선택은 **1 승인 / 2 수정 요청**, 보조 선택은
 
 ## 질문 CLI
 
-메뉴에서 초기 질문을 입력하거나 `action: "question"`, 현재 target, text와 선택적 backend/model/reasoning을 전달한다. Windows/Codex **0.154.0**을 지원하며 다른 backend/버전/OS는 명시적으로 거부한다.
+메뉴에서 초기 질문을 입력하거나 `action: "question"`, 현재 target, text와 선택적 backend/model/reasoning을 전달한다. Windows에서 `codex`, `claude-code`, `opencode`를 선택한다. Codex는 0.154.0, Claude Code는 2.1.278을 대상으로 하며 다른 버전은 거부한다. OpenCode 1.x는 공식 가이드 기반 구현이며 **설치·실행 검증을 하지 않았다**. 다른 OS의 터미널 인계는 미지원이다.
 
 질문 AI도 위 전역 설정의 `roles.question`을 사용한다. 프로젝트 `.devflow.yaml`에서는 다음처럼 지정한다.
 
@@ -170,6 +170,17 @@ execution:
       reasoning: medium
 ```
 
+backend를 바꾸려면 같은 위치의 question 설정을 다음 중 하나로 지정한다.
+
+| backend | model 예 | reasoning | 구현/검증 범위 |
+| --- | --- | --- | --- |
+| codex | gpt-5.5 | medium | 기존 sandbox/콘솔 smoke |
+| claude-code | sonnet | high | 대화형 옵션 확인·읽기 도구/인계 대역 계약 |
+| opencode | openai/gpt-5 | high | 공식 1.x 가이드 기반, 실행 미검증 |
+| opencode | anthropic/claude-sonnet-4-5 | 생략 | provider/model 선택, 실행 미검증 |
+
+예를 들어 Claude 질문은 `question: { backend: claude-code, model: sonnet, reasoning: high }`, OpenCode 질문은 `question: { backend: opencode, model: openai/gpt-5, reasoning: high }`다. OpenCode 질문 reasoning은 [공식 agent 가이드](https://opencode.ai/docs/agents/)의 OpenAI `reasoningEffort`에 연결한다. 다른 provider에서는 생략하며 잘못된 조합을 조용히 무시하지 않는다. 모델의 계정 접근 권한은 native CLI에서 결정된다.
+
 공통 설정 순서와 `task_types.<유형>.question`, 확정 Step의 `execution.question`도 지원한다. 아직 승인하지 않은 Planner 제안의 Step 설정은 적용하지 않는다. 질문 호출마다 설정을 읽고 실효값/출처를 기록하므로 이후 설정 변경이 이미 열린 창을 바꾸지는 않는다.
 
 일회성 덮어쓰기는 HITL CLI의 `--question-backend`, `--question-model`, `--question-reasoning` 또는 JSON 질문 요청의 backend/model/reasoning으로 지정한다. JSON에서 model/reasoning을 null로 지정하면 상속값을 CLI 기본값으로 되돌린다. 공통 defaults의 timeout/isolation/output_retries는 질문에 적용하지 않으며 `roles.question`에 직접 넣으면 오류다. 읽기 전용·승인 금지는 고정이다.
@@ -178,7 +189,7 @@ execution:
 
 **질문 시점의 결과 기준**이라는 표시와 정확한 문서 버전·코드 SHA, 원래 Context·Decision·작업 노트·Gate·Feedback을 새 창에 제공한다. 코드는 Git 객체에서 읽으며 진행 중 worktree의 최신 내용을 섞지 않는다. 원래 세션의 기록되지 않은 사고 과정을 복구하지 않는다.
 
-자료는 별도 디렉터리에 있고 Codex는 읽기 전용 sandbox에서 실행한다. 별도 native 설정/인증 디렉터리를 사용하며 기존 자격증명은 복사하지 않는다. 질문 창에서 로그인·sandbox 초기 설정이 필요할 수 있다. devflow는 **터미널 실행 인계 후 바로 메뉴로 돌아온다.** 창을 열어 둔 채 승인/수정 요청과 다음 역할 진행이 가능하다. 대화·종료·답변 수집·요약·반영은 하지 않는다. 인계 실패도 Task를 실패로 바꾸지 않으며, 인계 후 오류는 native 창에서 확인한다.
+자료는 별도 디렉터리에 제공한다. Codex는 read-only sandbox, Claude는 restricted·Read/Glob/Grep만 허용·dontAsk·MCP 차단, OpenCode는 기본 deny·읽기 도구 allow·외부 디렉터리 deny인 전용 agent를 사용한다. OpenCode의 실제 권한 동작은 미검증이다. 별도 native 설정/인증 디렉터리를 사용하며 기존 자격증명 파일은 복사하지 않는다. 질문 창에서 로그인·sandbox 초기 설정이 필요할 수 있다. devflow는 **터미널 실행 인계 후 바로 메뉴로 돌아온다.** 창을 열어 둔 채 승인/수정 요청과 다음 역할 진행이 가능하다. 대화·종료·답변 수집·요약·반영은 하지 않는다. 인계 실패도 Task를 실패로 바꾸지 않으며, 인계 후 오류는 native 창에서 확인한다.
 
 질문 자료와 native CLI 자체 설정/이력은 runner-dir 아래에 남는다. 자동 삭제하지 않으며 대화 종료 여부를 devflow가 판단하지 않는다. 사용자가 필요한 시점에 로컬 자료를 정리한다. 실제 창/쓰기 제한 검증과 모델 대화 검증의 범위는 [Runner 계약](design/runner.md)에 구분했다.
 

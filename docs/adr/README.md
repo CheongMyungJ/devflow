@@ -45,3 +45,4 @@
 | [0021](0021-role-settings-and-managed-execution.md) | 역할 실행 설정과 관리형 실행 |
 | [0022](0022-role-hitl-and-independent-questions.md) | 역할별 HITL과 독립 읽기 전용 질문 CLI |
 | [0023](0023-question-ai-settings.md) | 독립 질문 AI의 공통 설정 계층 |
+| [0024](0024-question-backend-adapters.md) | 질문 CLI의 backend별 대화형 어댑터 |
