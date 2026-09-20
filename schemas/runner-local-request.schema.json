@@ -3,22 +3,110 @@
   "$id": "devflow/runner-local-request.schema.json",
   "title": "RunnerLocalRequest",
   "description": "머신별 Runner 요청. 공유 State Store에는 저장하지 않는다. prepare가 고정하고 submit은 같은 요청만 실행한다.",
-  "type": "object", "additionalProperties": false,
-  "required": ["key", "workspaceId", "workdir", "role", "access", "prompt"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key",
+    "workspaceId",
+    "workdir",
+    "role",
+    "access",
+    "prompt"
+  ],
   "properties": {
     "key": {
-      "type": "object", "additionalProperties": false, "required": ["taskId", "runId", "executionId"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "runId",
+        "executionId"
+      ],
       "description": "Runner 조회에 쓰는 전체 식별자. UUID는 데이터 저장소 간 충돌도 방지한다.",
       "properties": {
-        "taskId": { "type": "string", "pattern": "^T-[0-9]{4,}$", "description": "Run 소유 Task." },
-        "runId": { "type": "string", "pattern": "^R-[0-9]{3,}$", "description": "Task 안의 Run." },
-        "executionId": { "type": "string", "format": "uuid", "description": "실행 UUID." }
+        "taskId": {
+          "type": "string",
+          "pattern": "^T-[0-9]{4,}$",
+          "description": "Run 소유 Task."
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^R-[0-9]{3,}$",
+          "description": "Task 안의 Run."
+        },
+        "executionId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "실행 UUID."
+        }
       }
     },
-    "workspaceId": { "type": "string", "format": "uuid", "description": "검증한 Workspace 준비 ID." },
-    "workdir": { "type": "string", "minLength": 1, "description": "검증한 Task worktree 절대 경로. 머신에서만 보관한다." },
-    "role": { "enum": ["worker", "reviewer", "planner", "intake"], "description": "역할. 현재 fake는 worker만 지원한다." },
-    "access": { "enum": ["write", "read"], "description": "권한. 현재 fake는 write만 지원한다." },
-    "prompt": { "type": "string", "minLength": 1, "description": "호출자가 명시한 입력 원문. 백엔드가 해석한다." }
+    "workspaceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "검증한 Workspace 준비 ID."
+    },
+    "workdir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "검증한 Task worktree 절대 경로. 머신에서만 보관한다."
+    },
+    "role": {
+      "enum": [
+        "worker",
+        "reviewer",
+        "planner",
+        "intake"
+      ],
+      "description": "역할. 현재 네 어댑터는 worker만 지원한다."
+    },
+    "access": {
+      "enum": [
+        "write",
+        "read"
+      ],
+      "description": "권한. 현재 네 어댑터는 write만 지원한다."
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "호출자가 명시한 입력 원문. 백엔드가 해석한다."
+    },
+    "backend": {
+      "enum": [
+        "fake",
+        "claude-code",
+        "codex",
+        "opencode"
+      ],
+      "description": "호출자가 선택한 실행 백엔드. 생략은 기존 fake 입력과의 호환용이다."
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s\\x00-\\x1f][^\\x00-\\x1f]*$",
+      "description": "명시적 모델 식별자. 생략하면 CLI 기본 모델이며 실제 선택된 모델을 추정해 기록하지 않는다."
+    },
+    "codeArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseSha",
+        "branch"
+      ],
+      "description": "workspace:code 종료 검증에 사용할 준비된 Workspace 기준. Git 구현만 해석한다.",
+      "properties": {
+        "baseSha": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+          "description": "Workspace의 고정 기준 SHA."
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Task branch 이름."
+        }
+      }
+    }
   }
 }

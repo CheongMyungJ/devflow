@@ -194,3 +194,32 @@ submit은 완료를 기다리지 않는다. 제출한 터미널/호출자를 종
 실패 시험은 새로 실행 가능한 Step/Run에서 prompt의 mode를 `fail` 또는 `crash`로 바꾼다. `success`의 output을 `{"summary":"packet_gaps 누락"}`으로 주면 invalid_output이다. `missing_output`은 파일 없이 exit 0으로 끝나는 경우다. `output_then_wait`는 출력 파일을 먼저 쓰고 delayMs 동안 기다려, 출력만 있고 종료 영수증은 없는 상태를 시험한다. 이미 제출한 Run의 입력을 바꾸면 거부되므로 새 ID가 필요하다. 자동 출력 재시도는 없다.
 
 명령이 0으로 끝났다는 것은 관찰/요청이 처리되었다는 뜻이다. 실행 성공 여부는 JSON의 `execution.state`, 수집 여부는 `collected`를 본다. unknown은 자동 실패/재실행하지 않으며 응답의 reason/action과 [수동 확인 절차](design/runner.md)를 따른다. `ExecutionError`는 로컬 실행 또는 공유 기록이 남았을 수 있음을 의미한다. resume·실행 중 메시지·stream·cancel·read 격리는 지원하지 않는다.
+
+## 실제 Worker CLI 실행 (ADR-0020)
+
+기존 fake 입력/명령은 그대로 쓸 수 있다. 실제 backend는 `submit-worker`, `worker-status`, `collect-worker`에 같은 `--backend`를 명시한다. 입력 JSON의 backend와 일치해야 한다. CLI 설치·인증은 사람이 사전에 준비하며 devflow는 자동 설치/로그인/전역 설정 변경을 하지 않는다. OpenCode는 어댑터와 대역 계약 테스트만 완료됐으며 **실제 OpenCode 연동은 미검증**이다.
+
+Task Workspace 준비와 Step 정의를 끝낸 뒤, Step outputs가 `report` document 하나라고 가정한 최소 입력은 다음과 같다. 입력 파일은 공유 데이터 디렉터리 밖에 둔다.
+
+```json
+{
+  "backend": "claude-code",
+  "model": "sonnet",
+  "prompt": "현재 Task 작업공간에 hello.txt를 만들고 hello devflow와 줄바꿈 하나를 써라. commit이나 설치는 하지 마라. 작업 내용을 work_notes에 기록하고 안내된 역할 출력 JSON 파일을 써라.",
+  "artifacts": [{ "name": "report", "source": "blob:work-notes" }]
+}
+```
+
+```powershell
+npm run submit-worker -- C:\work\test-data T-0001 step-001 R-001 C:\work\worker-input.json --backend claude-code --runner-dir C:\work\runner-state --machine-config C:\work\machine.yaml
+npm run worker-status -- C:\work\test-data T-0001 R-001 --backend claude-code --runner-dir C:\work\runner-state
+npm run collect-worker -- C:\work\test-data T-0001 R-001 --backend claude-code --runner-dir C:\work\runner-state
+```
+
+Codex를 선택하려면 입력 backend와 명령 옵션을 `codex`로 바꾸고, model은 설치된 CLI에서 접근 가능한 모델을 명시하거나 필드를 생략해 기본값을 쓴다. OpenCode는 `opencode`, model은 `provider/model` 형식이다. backend/model/prompt/산출물 정책은 실행 입력의 일부이므로 기존 Run에서 바꾸지 않는다. 다른 입력은 새 Run으로 제출한다. 누락한 backend는 fake로만 해석된다. stdout은 출력 JSON으로 간주하지 않으며, 프로세스 성공 종료와 유효한 출력 파일을 모두 확인한 뒤 수집한다.
+
+코드 Artifact가 필요하면 Step의 `code_change` 출력 이름에 `"source": "workspace:code"`를 매핑한다. Worker가 실제 commit을 남겨야 하며, 시스템은 성공 종료 때 clean Task branch·기준 SHA ancestry·현재 HEAD를 검증한다. 자동 commit/reset은 없다. 미커밋 변경이나 권한 거부는 해결된 것으로 취급하지 않는다. 실제 백엔드는 미래 SHA를 지정하는 `code:<sha>..<sha>`나 `repo:` 출처를 거부한다. 문서와 코드 출력 둘을 선언했다면 두 이름을 모두 매핑한다.
+
+호출자가 종료됐으면 원래 머신/runner-dir/backend에서 같은 입력으로 submit을 다시 호출하거나 status/collect를 실행한다. 이미 시작한 실행은 새로 만들지 않는다. 출력 파일만 있고 종료 영수증이 없거나 supervisor/로컬 기록이 유실됐으면 unknown이며, 시작 표식을 삭제하거나 새 실행으로 덮지 말고 [Runner 수동 확인 절차](design/runner.md#수동-확인)를 따른다. 실행이 정상 종료됐다면 반복 collect는 기존 Run/Artifact를 돌려주며 이벤트를 추가하지 않는다.
+
+재현 가능한 실제 CLI 검증은 `node tests/runner/real-smoke.mjs claude-code`와 `node tests/runner/real-smoke.mjs codex`다. 각각 임시 대상 repo·Task worktree·테스트 Store에서 작은 파일과 문서 Artifact를 만들고 실행 중 caller를 강제 종료해 회수한다. 일반 `npm test`에는 모델 호출이 없다. 옵션 근거·검증 버전·제약은 [Runner 계약](design/runner.md#공통-계층과-실제-cli-어댑터)에 있다.

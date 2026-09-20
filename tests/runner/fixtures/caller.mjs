@@ -7,7 +7,9 @@ const { GitWorkspace } = await load('src/workspace/git/workspace.js');
 const { FakeRunner } = await load('src/runner/fake/runner.js');
 const { submitWorker, collectWorker } = await load('src/commands/worker.js');
 const store = new FileStore({ dataDir: options.dataDir });
-const runner = new FakeRunner(options.runnerDir);
+const classes = { 'claude-code': 'ClaudeCodeRunner', codex: 'CodexRunner', opencode: 'OpenCodeRunner' };
+const Runner = options.backend ? (await load(`src/runner/${options.backend}/runner.js`))[classes[options.backend]] : FakeRunner;
+const runner = new Runner(options.runnerDir, options.cli);
 const workspace = new GitWorkspace({ remoteUrl: async () => options.remote,
   locate: async () => ({ url: options.remote, clone: options.clone, worktreeRoot: options.worktreeRoot, remote: 'origin' }) });
 const ctx = { store, workspace, runner, actor: 'system', clock: { now: () => new Date() } };

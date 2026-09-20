@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/runner-local-launch.schema.json",
+  "title": "RunnerLocalLaunch",
+  "description": "어댑터가 prepare 시 고정하는 머신별 실행 계획. supervisor는 백엔드 옵션을 해석하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "command",
+    "args",
+    "outputPath",
+    "stdin",
+    "env"
+  ],
+  "properties": {
+    "command": {
+      "type": "string",
+      "description": "직접 spawn할 실행 파일. shell wrapper는 지원하지 않는다.",
+      "minLength": 1
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "분리된 인자."
+      },
+      "description": "CLI 인자 배열. shell로 결합하지 않는다."
+    },
+    "stdin": {
+      "type": "string",
+      "description": "표준 입력으로 전달할 명시적 프롬프트. 로그나 역할 출력과 다르다."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "어댑터가 설정하는 프로세스 한정 환경 변수. 상속 인증 정보는 여기에 복사하지 않는다."
+    },
+    "outputPath": {
+      "type": "string",
+      "description": "머신별 역할 출력 파일 위치.",
+      "minLength": 1
+    }
+  }
+}

@@ -29,16 +29,17 @@
 
 범위: 사용자 1명, Task 당 repo 1개(프로젝트와 동시 진행 Task 는 여러 개 가능), Task 안에서는 Step 순차 실행, 작은 버그 수정·소규모 기능. Skill 0개.
 
-- [ ] Role Runner + 어댑터 3종: `fake`(테스트용) → `claude-code` → `codex` (ADR-0010)
+- [x] 신규 Worker/write 어댑터: `fake`, `claude-code`, `codex`, `opencode` + 공통 실행 관리 (ADR-0020). Claude Code/Codex 실제 세션과 호출자 종료 후 회수 확인. OpenCode는 계약 테스트 완료, 실제 연동 미검증. 다른 역할과 아래 후속 기능은 제외
 - [x] fake Worker 실행 관리: 명시적 입력, Task/Run/UUID 식별, detached supervisor, 호출자 종료 후 상태/결과 회수, 멱등 수집 (ADR-0019). 실제 AI·resume·메시지·자동 재시도는 제외
-- [ ] 출력 파일 스키마 검증·재시도, 읽기 전용 실행의 worktree 변경 검사
+- [x] 네 어댑터의 출력 파일 스키마 검증과 멱등 수집, 실행 후 Git SHA 확정 (`workspace:code`)
+- [ ] 출력 자동 재시도, 읽기 전용 실행의 worktree 변경 검사
 - [ ] resume 경로와 새 세션 대체 경로, Run 기록
 - [ ] transcript 정규화 (`task attach` / `task log` 표시용)
 - [ ] Orchestrator: 멱등 `advance()`, 재작업·Step 수 상한
 - [ ] Gate: `.devflow.yaml` 의 명령 실행 + AI 리뷰 1회
 - [ ] CLI: `task new / run / status / review / answer / attach / log`
 - [x] Workspace 최소 기능: Task별 worktree 준비·조회, 원격/로컬 기준 선택, SHA 고정, 정상 단계 경계의 중단 후 복구 (ADR-0018)
-- [x] 준비된 Workspace와 fake Worker Runner 연결 (ADR-0019)
+- [x] 준비된 Workspace와 네 Worker Runner 연결 (ADR-0019, ADR-0020)
 - [ ] Workspace 후속: 자동 정리, base branch 이동을 Planner에 전달. Git 생성 도중의 불완전 상태는 현재 수동 확인
 - [ ] `task status`: Task 전체에 걸친 "내 입력 대기" 목록
 - [ ] `devflow-data` 의 git commit 직렬화, `exclusive` 프로젝트의 Gate 직렬화 (Task ID 발급은 lock 없이 `mkdir` 로, Task 별 Store commit 의 직렬화는 T-0001 에서 구현 — ADR-0011)
@@ -55,7 +56,7 @@
 - 재작업·비용 한도 조정
 - 실패 사례 기반 역할 프롬프트 개선, 프롬프트 버전 태그
 - 백엔드별·세션 경로별(resume vs 새 세션) 재작업률 비교 → 역할별 백엔드 배정, 작업 노트 품질 개선
-- 세 번째 어댑터(opencode 등)
+- OpenCode 실제 연동 검증과 백엔드별 운영 경험 축적 (Worker/write 어댑터와 대역 계약 테스트는 ADR-0020에서 완료)
 - 회고 초안을 `events.jsonl` 에서 자동 생성
 
 **넘어가는 기준**: 최근 10개 Task 에서 Planner Step 제안 수정률 10% 미만 → `--auto-plan` 기본값 전환.

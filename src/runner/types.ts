@@ -1,12 +1,12 @@
 // ADR-0019: durable asynchronous execution. Local paths never enter shared Run records.
-import type { RunnerLocalRequest } from '../types/generated/index.js';
+import type { RunnerLocalRequest, RunnerLocalResult } from '../types/generated/index.js';
 
 export type RunRequest = RunnerLocalRequest;
 export type ExecutionKey = RunRequest['key'];
 export type ExecutionState =
   | { state: 'prepared' }
   | { state: 'running' }
-  | { state: 'completed'; workerOutput: string }
+  | Extract<RunnerLocalResult['outcome'], { state: 'completed' }>
   | { state: 'failed'; kind: 'process_exit' | 'invalid_output'; reason: string }
   | { state: 'unknown'; reason: string; action: string };
 

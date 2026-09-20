@@ -303,3 +303,9 @@ step 스키마의 status: `proposed`, `defined`, `running`, `checking`, `in_revi
 - 조립 지점은 `FileProjectCatalog`와 `GitWorkspace`도 생성한다. 머신 파일은 `--machine-config` 또는 `DEVFLOW_MACHINE_CONFIG`, 프로젝트 등록부는 데이터 루트의 `projects.yaml`이다. 설정 읽기는 어댑터가 하고 입구/commands는 파일 형식을 모른다.
 
 Git 경계와 복구 처리의 상세는 `docs/design/workspace.md`, 운영 예는 `docs/stage0-manual-operation.md`를 참조한다. 잠금 자동 회수·작업공간 삭제·reset은 하지 않는다.
+
+## 9. Worker 실행 command와 조회 (ADR-0019, ADR-0020)
+
+`submitWorker`는 로컬 prepare → submitRun 기록 → Runner submit을 연결하는 다단계 command다. `WorkerCommandContext`는 Workspace Context에 Runner를 주입받는다. `getWorkerExecution`은 관찰만 하고 `collectWorker`는 확인된 종료 결과를 completeRun/failRun으로 수집한다. terminal Run 자체가 수집 영수증이므로 반복 수집으로 Artifact/이벤트를 추가하지 않는다. 실제 상태는 execution.state이며 공유 Run은 수집 전 submitted다.
+
+네 백엔드는 같은 command/query를 사용한다. CLI의 backend 선택은 조립 지점에서 처리하며 구체적인 Runner나 Git 구현을 commands/queries에 import하지 않는다. 명시적 backend/model/prompt/산출물 정책은 재제출 일치 검사에 포함한다. 실행 후 확정하는 `workspace:code`는 supervisor가 Git 구현으로 검증한 종료 SHA를 사용한다. Store commit과 프로세스 시작을 원자적으로 취급하지 않는다. 입력·상태·unknown의 수동 절차와 CLI 버전 제약은 [Runner 계약](runner.md)에 있다.
