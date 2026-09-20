@@ -13,3 +13,4 @@ export { ADDABLE_FEEDBACK_KINDS, addFeedback, type AddFeedbackInput, approveStep
 export { completeTask, type CompleteTaskInput } from './complete-task.js';
 export { prepareWorkspace, type WorkspaceCommandContext, type PreparedWorkspace } from './workspace.js';
 export { WorkspacePreparationError } from '../workspace/errors.js';
+export { submitWorker, collectWorker, type WorkerCommandContext, type SubmitWorkerInput } from './worker.js';

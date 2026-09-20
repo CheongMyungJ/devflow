@@ -30,6 +30,7 @@
 범위: 사용자 1명, Task 당 repo 1개(프로젝트와 동시 진행 Task 는 여러 개 가능), Task 안에서는 Step 순차 실행, 작은 버그 수정·소규모 기능. Skill 0개.
 
 - [ ] Role Runner + 어댑터 3종: `fake`(테스트용) → `claude-code` → `codex` (ADR-0010)
+- [x] fake Worker 실행 관리: 명시적 입력, Task/Run/UUID 식별, detached supervisor, 호출자 종료 후 상태/결과 회수, 멱등 수집 (ADR-0019). 실제 AI·resume·메시지·자동 재시도는 제외
 - [ ] 출력 파일 스키마 검증·재시도, 읽기 전용 실행의 worktree 변경 검사
 - [ ] resume 경로와 새 세션 대체 경로, Run 기록
 - [ ] transcript 정규화 (`task attach` / `task log` 표시용)
@@ -37,7 +38,8 @@
 - [ ] Gate: `.devflow.yaml` 의 명령 실행 + AI 리뷰 1회
 - [ ] CLI: `task new / run / status / review / answer / attach / log`
 - [x] Workspace 최소 기능: Task별 worktree 준비·조회, 원격/로컬 기준 선택, SHA 고정, 정상 단계 경계의 중단 후 복구 (ADR-0018)
-- [ ] Workspace 후속: 자동 정리, base branch 이동을 Planner에 전달, Runner 연결. Git 생성 도중의 불완전 상태는 현재 수동 확인
+- [x] 준비된 Workspace와 fake Worker Runner 연결 (ADR-0019)
+- [ ] Workspace 후속: 자동 정리, base branch 이동을 Planner에 전달. Git 생성 도중의 불완전 상태는 현재 수동 확인
 - [ ] `task status`: Task 전체에 걸친 "내 입력 대기" 목록
 - [ ] `devflow-data` 의 git commit 직렬화, `exclusive` 프로젝트의 Gate 직렬화 (Task ID 발급은 lock 없이 `mkdir` 로, Task 별 Store commit 의 직렬화는 T-0001 에서 구현 — ADR-0011)
 - [ ] Task Ledger 갱신

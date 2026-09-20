@@ -4,7 +4,7 @@
 import { blobRef } from '../store/blob-ref.js';
 import { artifactRef, isCanonicalId } from '../store/refs.js';
 import type { BlobOwner, BlobWrite, CommitResult, EntityWrite, NewEvent } from '../store/types.js';
-import type { ArtifactVersion, Run, Step } from '../types/generated/index.js';
+import type { ArtifactVersion, Run, Step, WorkerExecutionInput } from '../types/generated/index.js';
 import {
   checkKeys,
   commitAfterReading,
@@ -26,6 +26,9 @@ import { nextStepStatus, statusChangedEvents } from './transitions.js';
 // ---------------------------------------------------------------- submitRun
 
 export interface SubmitRunInput {
+  /** 실행 command 내부용: 로컬 prepare 뒤 입력 blob과 함께 기록한다. */
+  execution?: NonNullable<Run['execution']>;
+  executionInput?: WorkerExecutionInput;
   taskId: string;
   /** worker·reviewer 는 필수, planner 는 없다(Task 수준). */
   stepId?: string;
@@ -48,7 +51,7 @@ export interface SubmitRunInput {
   note?: string;
 }
 
-const SUBMIT_KEYS = ['taskId', 'stepId', 'role', 'purpose', 'access', 'backend', 'backendVersion', 'model', 'backendSessionId', 'sessionPath', 'performer', 'resumedFrom', 'expectId', 'packet', 'note'];
+const SUBMIT_KEYS = ['taskId', 'stepId', 'role', 'purpose', 'access', 'backend', 'backendVersion', 'model', 'backendSessionId', 'sessionPath', 'performer', 'resumedFrom', 'expectId', 'packet', 'note', 'execution', 'executionInput'];
 
 /**
  * Run 을 제출로 기록한다: Run(submitted), blob R-NNN.packet(주어지면), run.submitted, worker 가 defined 에서 부르면 step.yaml(running)과
@@ -56,6 +59,8 @@ const SUBMIT_KEYS = ['taskId', 'stepId', 'role', 'purpose', 'access', 'backend',
  */
 export async function submitRun(ctx: CommandContext, input: SubmitRunInput): Promise<{ run: Run; result: CommitResult }> {
   checkKeys(input, SUBMIT_KEYS);
+  if ((input.execution === undefined) !== (input.executionInput === undefined)) throw new RejectedInputError(['execution과 executionInput은 함께 필요하다']);
+  if (input.executionInput) rejectIf(schemaIssues('worker-execution-input', input.executionInput, 'executionInput'));
   const { taskId, stepId, role } = input;
   const at = recordedAt(ctx.clock);
   let run!: Run;
@@ -106,11 +111,13 @@ export async function submitRun(ctx: CommandContext, input: SubmitRunInput): Pro
         status: 'submitted',
         ...(ctx.systemSha !== undefined ? { system_sha: ctx.systemSha } : {}),
         submitted_at: at,
+        ...(input.execution ? { execution: input.execution } : {}),
       };
       const writes: EntityWrite[] = [{ kind: 'run', value: run }];
       if (step !== undefined && next !== step.status) writes.push({ kind: 'step', value: { ...step, status: next! } });
       const owner: BlobOwner = { taskId, ...(stepId !== undefined ? { stepId } : {}), runId: id };
       const blobs: BlobWrite[] = input.packet !== undefined ? [{ owner, name: 'packet', content: input.packet }] : [];
+      if (input.executionInput) blobs.push({ owner, name: 'execution-input.json', content: JSON.stringify(input.executionInput) });
       const data = withNote(
         { role, backend: input.backend, ...(input.resumedFrom !== undefined ? { session_path: input.sessionPath, resumed_from: input.resumedFrom } : {}) },
         input.note,
@@ -257,6 +264,7 @@ export async function submittedRun(ctx: CommandContext, taskId: string, runId: s
 // ---------------------------------------------------------------- failRun
 
 export interface FailRunInput {
+  failureKind?: Run['failure_kind'];
   taskId: string;
   runId: string;
   reason: string;
@@ -272,7 +280,7 @@ export interface FailRunInput {
  * Step 의 status 는 바꾸지 않는다(다시 제출하면 running·revising 그대로 — 7절).
  */
 export async function failRun(ctx: CommandContext, input: FailRunInput): Promise<{ run: Run; result: CommitResult }> {
-  checkKeys(input, ['taskId', 'runId', 'reason', 'note', 'failedNotes', 'partialDiff']);
+  checkKeys(input, ['taskId', 'runId', 'reason', 'note', 'failedNotes', 'partialDiff', 'failureKind']);
   const { taskId, runId } = input;
   if (input.reason.trim() === '') throw new RejectedInputError(['reason: 비어 있다']);
   const at = recordedAt(ctx.clock);
@@ -281,7 +289,7 @@ export async function failRun(ctx: CommandContext, input: FailRunInput): Promise
     await openTask(ctx, taskId);
     const before = await submittedRun(ctx, taskId, runId);
     return () => {
-      run = { ...before, status: 'failed', ended_at: at };
+      run = { ...before, status: 'failed', ended_at: at, ...(input.failureKind ? { failure_kind: input.failureKind } : {}) };
       const owner: BlobOwner = { taskId, ...(before.step_id !== undefined ? { stepId: before.step_id } : {}), runId };
       const blobs: BlobWrite[] = [];
       if (input.failedNotes !== undefined) blobs.push({ owner, name: 'failed', content: input.failedNotes });

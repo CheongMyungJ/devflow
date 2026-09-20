@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/fake-worker-input.schema.json",
+  "title": "FakeWorkerInput",
+  "description": "fake 어댑터만 해석하는 시험용 prompt JSON. 정상/지연/실패/비정상 종료/출력 누락을 재현한다.",
+  "type": "object", "additionalProperties": false, "required": ["mode", "delayMs", "output"],
+  "properties": {
+    "mode": { "enum": ["success", "fail", "crash", "missing_output", "output_then_wait"], "description": "success는 지연 뒤 output 파일을 쓰고 exit 0. fail은 7, crash는 강제 종료, missing_output은 파일 없이 exit 0. output_then_wait는 먼저 output 파일을 쓰고 지연 뒤 exit 0으로, 출력과 종료 영수증 사이의 중단을 시험한다." },
+    "delayMs": { "type": "integer", "minimum": 0, "maximum": 60000, "description": "Worker의 실행 지연(ms). stdout 없이 실행 중인 상태를 시험한다." },
+    "output": { "type": "string", "description": "출력 파일 원문. 잘못된 JSON/스키마도 의도적으로 허용하고 수집 시 worker-output으로 검증한다." }
+  }
+}

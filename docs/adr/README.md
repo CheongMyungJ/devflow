@@ -40,3 +40,4 @@
 | [0016](0016-single-schema-loader-cross-file-ref.md) | 스키마를 파일을 가로질러 `$ref` 하고, 스키마 로더를 하나로 |
 | [0017](0017-stage0-records-through-commands.md) | 0단계의 기록을 Store 위의 command 로, 운영 스크립트는 조립 지점을 거치는 얇은 입구로 |
 | [0018](0018-workspace-preparation.md) | Workspace 준비 — 원격 기본값, 시작 SHA 고정, 중단 후 대조 |
+| [0019](0019-recoverable-worker-execution.md) | Worker 실행 — Task/Run/UUID 식별, 영구 시작 표식, 호출자 종료 후 결과 회수 |

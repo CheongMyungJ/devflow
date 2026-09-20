@@ -7,6 +7,17 @@
   "additionalProperties": false,
   "required": ["id", "task_id", "role", "access", "backend", "session_path", "status", "submitted_at"],
   "properties": {
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "description": "관리형 Runner 실행의 공유 식별자. 머신별 경로/PID/포트는 저장하지 않는다. 없는 옛 Run은 기록 전용이다.",
+      "required": ["id", "workspace_id", "input_sha256"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid", "description": "Store 간에도 충돌하지 않는 실행 UUID. task_id와 Run id와 함께 조회한다." },
+        "workspace_id": { "type": "string", "format": "uuid", "description": "준비된 Task Workspace 식별자." },
+        "input_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "정규화한 worker-execution-input의 SHA256. 다른 입력으로 재제출하면 거부한다." }
+      }
+    },
+    "failure_kind": { "enum": ["process_exit", "invalid_output"], "description": "관리형 실행에서 확인된 실패 종류. unknown/running은 실패로 기록하지 않는다." },
     "id": { "type": "string", "pattern": "^R-[0-9]{3,}$" },
     "task_id": { "type": "string" },
     "step_id": { "type": "string" },

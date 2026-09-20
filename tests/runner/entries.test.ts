@@ -1,0 +1,36 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { stringify } from 'yaml';
+import { expect, it } from 'vitest';
+import { entryRunner } from '../entry-helpers.js';
+import { ready, spec } from './helpers.js';
+
+const entry = entryRunner('worker');
+it('submit/status/collect entrypoints recover through independent Node processes', async () => {
+  const url = 'https://example.invalid/runner-test.git';
+  const s = await ready(url);
+  writeFileSync(join(s.dataDir, 'projects.yaml'), stringify({ projects: { sample: { repo: url } } }));
+  const machine = join(s.root, 'machine.yaml');
+  writeFileSync(machine, stringify({ projects: { sample: { clone: s.clone, worktree_root: s.worktreeRoot } } }));
+  const file = entry.file(JSON.stringify(spec('success', 400)));
+  const submit = [s.dataDir, s.task.id, 'step-001', 'R-001', file, '--runner-dir', s.runnerDir, '--machine-config', machine];
+  const first = entry.run('submit-worker', submit);
+  expect(first.status, first.all).toBe(0);
+  const args = [s.dataDir, s.task.id, 'R-001', '--runner-dir', s.runnerDir];
+  const status = entry.run('worker-status', args);
+  expect(status.status, status.all).toBe(0);
+  expect(['running', 'completed']).toContain(JSON.parse(status.stdout).execution.state);
+  let result = entry.run('collect-worker', args);
+  for (let n = 0; n < 5 && !JSON.parse(result.stdout).collected; n++) result = entry.run('collect-worker', args);
+  expect(result.status, result.all).toBe(0);
+  expect(JSON.parse(result.stdout).run.status).toBe('completed');
+  const repeated = entry.run('submit-worker', submit);
+  expect(repeated.status, repeated.all).toBe(0);
+  expect(JSON.parse(repeated.stdout).collected).toBe(true);
+  expect(entry.run('collect-worker', args).stdout).toBe(result.stdout);
+  const bad = entry.file(JSON.stringify(spec('fail')));
+  const changed = entry.run('submit-worker', [s.dataDir, s.task.id, 'step-001', 'R-001', bad, '--runner-dir', s.runnerDir, '--machine-config', machine]);
+  expect(changed.status).toBe(1);
+  expect(changed.stderr).toContain('different input');
+  expect(changed.stderr).not.toContain('아무것도 기록하지 않았다');
+});

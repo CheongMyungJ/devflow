@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/runner-local-request.schema.json",
+  "title": "RunnerLocalRequest",
+  "description": "머신별 Runner 요청. 공유 State Store에는 저장하지 않는다. prepare가 고정하고 submit은 같은 요청만 실행한다.",
+  "type": "object", "additionalProperties": false,
+  "required": ["key", "workspaceId", "workdir", "role", "access", "prompt"],
+  "properties": {
+    "key": {
+      "type": "object", "additionalProperties": false, "required": ["taskId", "runId", "executionId"],
+      "description": "Runner 조회에 쓰는 전체 식별자. UUID는 데이터 저장소 간 충돌도 방지한다.",
+      "properties": {
+        "taskId": { "type": "string", "pattern": "^T-[0-9]{4,}$", "description": "Run 소유 Task." },
+        "runId": { "type": "string", "pattern": "^R-[0-9]{3,}$", "description": "Task 안의 Run." },
+        "executionId": { "type": "string", "format": "uuid", "description": "실행 UUID." }
+      }
+    },
+    "workspaceId": { "type": "string", "format": "uuid", "description": "검증한 Workspace 준비 ID." },
+    "workdir": { "type": "string", "minLength": 1, "description": "검증한 Task worktree 절대 경로. 머신에서만 보관한다." },
+    "role": { "enum": ["worker", "reviewer", "planner", "intake"], "description": "역할. 현재 fake는 worker만 지원한다." },
+    "access": { "enum": ["write", "read"], "description": "권한. 현재 fake는 write만 지원한다." },
+    "prompt": { "type": "string", "minLength": 1, "description": "호출자가 명시한 입력 원문. 백엔드가 해석한다." }
+  }
+}

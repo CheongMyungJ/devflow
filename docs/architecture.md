@@ -34,7 +34,7 @@
 | commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로. 기록은 모두 command 가 Store 의 commit 으로 쓴다. 규약 `docs/design/commands.md` (아래 2.2) | in-process 함수. 0단계에는 운영 스크립트(`scripts/*.mjs`, 입구)가 조립 지점을 거쳐 부른다 | HTTP API |
 | State Store | Task/Step/Decision/Feedback/GateResult/Run/Artifact 와 이벤트, blob 저장. Task 안의 ID 발급, 불변 기록의 덮어쓰기 방지, commit 식별자. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` (아래 2.1) | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
 | Orchestrator | 멱등 `advance(task_id)` | 사람이 `task run` 으로 호출 | 이벤트가 호출 |
-| Role Runner | `submit / result / stream / sendMessage / cancel` + 백엔드 어댑터 | 로컬 subprocess (`claude-code`, `codex`, 테스트용 `fake`) | job queue + 컨테이너 |
+| Role Runner | `prepare / submit / inspect` 비동기 실행·결과 회수 | detached supervisor + fake Worker subprocess. 실제 AI·resume·메시지 등은 미구현 | job queue + 컨테이너 |
 | Workspace | Task 별 branch/worktree 준비·조회·중단 후 대조 | `src/workspace/types.ts` 뒤의 로컬 Git 구현, `prepare-workspace`·`workspace-status` | 서버 clone, remote 경유 |
 
 ### 2.1 State Store 와 스키마 로더
@@ -50,7 +50,7 @@
 
 ### 2.2 commands 와 0단계의 입구
 
-- **기록 command**(`src/commands/`, 목록은 `index.ts`): Task 발행 `createTask`·done `completeTask`, Step 한 바퀴 `submitRun`·`completeRun`·`failRun`·`recordGate`·`recordDecision`·`defineStep`·`requestRevision`·`approveStep`·`addFeedback`, 짝이 되는 엔티티가 없는 이벤트 `appendEvents`. 첫 인자는 `CommandContext`(Store, 시계, actor, system_sha, 선택적 기본 branch resolver). 기록 command 하나는 한 commit이고 시각·ID·status·commit_id는 도구가 채운다. `createTask`는 원격 기본 branch 조회 후 한 commit으로 발행한다. Step 기록 command는 `common.ts`의 `commitAfterReading`으로 충돌 시 다시 읽고 판단한다. `appendEvents`는 같은 원칙의 자체 루프를 쓴다. 별도 **실행 command `prepareWorkspace`는 두 commit 사이에 Git 작업이 있는 예외**다(아래 2.3, ADR-0018). 입력·거부 조건은 `docs/design/commands.md`.
+- **기록 command**(`src/commands/`, 목록은 `index.ts`): Task 발행 `createTask`·done `completeTask`, Step 한 바퀴 `submitRun`·`completeRun`·`failRun`·`recordGate`·`recordDecision`·`defineStep`·`requestRevision`·`approveStep`·`addFeedback`, 짝이 되는 엔티티가 없는 이벤트 `appendEvents`. 첫 인자는 `CommandContext`(Store, 시계, actor, system_sha, 선택적 기본 branch resolver). 기록 command 하나는 한 commit이고 시각·ID·status·commit_id는 도구가 채운다. `createTask`는 원격 기본 branch 조회 후 한 commit으로 발행한다. Step 기록 command는 `common.ts`의 `commitAfterReading`으로 충돌 시 다시 읽고 판단한다. `appendEvents`는 같은 원칙의 자체 루프를 쓴다. 별도 **실행 command `prepareWorkspace`는 두 commit 사이에 Git 작업이 있는 예외**다(아래 2.3, ADR-0018). `submitWorker`도 로컬 prepare→공유 submitRun→Runner 시작을 연결하는 다단계 command다(8절, ADR-0019). 입력·거부 조건은 `docs/design/commands.md`.
 - **Step status 의 전이표**는 `src/commands/transitions.ts` 한 곳에 있고 status 를 바꾸는 command 는 모두 그것으로 판단한다(표는 `docs/design/commands.md` 7절). **이벤트의 ref** 는 `src/store/refs.ts` 의 `isEventRef` 가 받는 모양만 기록된다.
 - **입구**(`scripts/*.mjs` — `issue-task`, `submit-run`, `propose-step`, `define-step`, `complete-run`, `fail-run`, `record-gate`, `request-revision`, `approve-step`, `add-feedback`, `complete-task`, `append-events`)는 인자와 입력 파일을 읽어 command 하나를 부른다. command 와 Context 는 **조립 지점** `scripts/lib/assemble.mjs` 가 만든다 — scripts/ 에서 Store 의 파일 구현체를 여는 곳은 여기(와 검증용 check-store-read)뿐이다. 입구는 그것과 인자 해석·파일 읽기·보고의 공용 모듈 `scripts/lib/cli.mjs`, `node:` 모듈만 import 한다(`tests/architecture.test.ts`). 조립 지점은 `src/` 를 `tsc --noCheck` 로 빌드해 쓰고, 소스의 내용 해시가 같으면 빌드를 다시 쓴다(`scripts/lib/build.mjs`, `docs/design/commands.md` 6.5).
 - 역할 세션의 출력(worker-output, reviewer-output, Planner 의 Decision, deterministic 결과)과 사람이 쓴 정의(Task, 고친 Step)는 데이터 디렉터리 밖의 파일로 받아 command 가 blob·엔티티로 쓴다. 입구가 받은 로컬 경로는 기록되지 않는다. 사람이 한 일의 입구는 `--actor human:<id>` 를 요구하고, 승인은 사람이 본 Gate(`--gate G-NNN`)의 버전만 승인한다.
@@ -58,7 +58,7 @@
 
 ### 2.3 Workspace 준비 (구현됨)
 
-- 공개 경로는 `commands.prepareWorkspace(ctx, { taskId })`, `queries.getWorkspace(ctx, taskId)`다. 확장 Context가 Store와 `Workspace` 인터페이스를 받는다. `src/workspace/git/`만 Git 명령·로컬 경로·머신 관리 기록을 안다. 조립 지점이 `GitWorkspace`와 `FileProjectCatalog`를 만든다. Runner 연결과 `advance`는 아직 없다.
+- 공개 경로는 `commands.prepareWorkspace(ctx, { taskId })`, `queries.getWorkspace(ctx, taskId)`다. 확장 Context가 Store와 `Workspace` 인터페이스를 받는다. `src/workspace/git/`만 Git 명령·로컬 경로·머신 관리 기록을 안다. 조립 지점이 `GitWorkspace`와 `FileProjectCatalog`를 만든다. 준비된 위치를 fake Worker 실행 command가 사용한다. `advance`는 아직 없다.
 - 발행 입력에 branch가 없으면 등록 원격의 HEAD를 조회한다. 이름만 지정하면 remote, local은 이름 필수다. 최초 준비는 remote branch를 fetch하거나 local branch를 읽어 SHA를 고정한다. 실패 시 다른 출처로 대체하지 않는다. 옛 Task의 출처는 추정하지 않는다.
 - 준비는 `workspace.prepare_requested` commit → Git 생성/대조 → `workspace.prepared` commit이다. 두 commit은 원자적이지 않다. 재호출은 고정 SHA와 로컬 소유 기록·Git 상태·생성 완료 표식을 대조한다. 정상 작업공간이 있으면 변경을 보존하고 빠진 완료 기록만 보충한다. 완료된 작업공간이 없어졌거나 소유/branch/저장소가 다르면 중단한다.
 - Git common directory의 `devflow-workspaces/`는 머신별 소유 기록과 완료 표식·잠금을 보관한다. 공유 State Store 밖의 실행 구현이며 Task 이벤트에는 위치를 기록하지 않는다. 원격 fetch는 고유 `refs/devflow/fetch/`에 받아 최초 SHA를 보존한다. 자동 정리는 이번 범위 밖이다.
@@ -153,18 +153,17 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 
 ## 8. Runner 와 백엔드
 
-구현: TypeScript + Node.js LTS. 인터페이스는 `src/runner/types.ts`.
+구현: TypeScript + Node.js LTS. 인터페이스는 `src/runner/types.ts`, 현재 어댑터는 `src/runner/fake/`, 계약은 `docs/design/runner.md`, 결정 배경은 ADR-0019다.
 
-- 어댑터는 각 도구의 headless CLI 를 subprocess 로 실행하고, 능력(`supportsLiveMessage`, `supportsResume`)을 선언한다. CLI 옵션 지식은 어댑터 밖으로 새지 않는다.
-- 백엔드·모델은 역할별로 설정한다(Worker 와 Reviewer 를 다른 모델로 돌릴 수 있다). 실행마다 Run 기록(`schemas/run.schema.json`)에 backend, model, 버전, 세션 경로, 수행 주체(`performer` — Context 패킷만 받은 독립 세션인가, 대화 세션이 역할을 겸했는가)를 남긴다.
-- **출력은 파일로 받는다.** 역할 프롬프트가 출력 디렉터리에 `<name>.json` 을 쓰도록 지시하고, 시스템이 스키마로 검증한다. 실패 시 오류를 붙여 재시도한다. 출력 스키마는 Planner `decision`, Reviewer `reviewer-output`, Worker `worker-output` 이고 현재 형식만 받는다. 기록 스키마(GateResult, Run, Decision)는 옛 형식의 기록도 읽을 수 있게 허용을 스키마 안에 둔다 (ADR-0012).
-- Context 패킷을 받는 역할(Planner, Worker, Reviewer — Intake 는 아니다)은 출력의 `packet_gaps` 에 "받은 Context 패킷에서 부족했거나 모호했던 점" 을 적는다(없으면 빈 배열). 시스템이 그 Run 의 `packet_gaps` 로 옮긴다.
-- **권한은 `access: read | write`.** 읽기 전용 실행 뒤 worktree 가 변경되었으면 실행을 무효 처리한다.
-- **세션 선택**: 같은 Step 안에서 같은 역할이 이어가는 경우(질문, 수정 요청, 개입 후 재개)는 resume 우선. 다음 Step, Reviewer, Planner 는 새 세션. resume 실패 시 Context 패킷으로 새 세션을 띄운다.
-- 실행 중 메시지를 지원하지 않는 백엔드는 "중단 → 메시지 포함해 resume" 으로 대체한다. 메시지는 어느 경우든 먼저 이벤트로 기록된다.
-- Worker 는 산출물과 함께 **작업 노트**(주요 판단과 이유, 버린 방법, 미확인 사항)를 남긴다. resume 없이 이어가는 세션과 사람 검토, Planner 판단의 입력이 된다.
-- transcript 는 백엔드 원본과 정규화본(text / tool_call / tool_result / end)을 함께 저장한다.
-- repo 지침의 기준 문서는 `AGENTS.md`. `CLAUDE.md` 는 그것을 참조만 한다.
+- 공개 입구는 `submitWorker / getWorkerExecution / collectWorker`와 운영 스크립트 `submit-worker / worker-status / collect-worker`다. 조립 지점이 Store 하나, Workspace, FakeRunner를 Context로 주입한다. CLI는 commands/queries만 호출한다.
+- **식별자는 Task ID + Run ID + 실행 UUID**다. Run은 Task 안의 ID이고 실행 UUID는 Store 간 충돌도 피한다. 공유 Run에는 실행 ID·Workspace ID·명시적 입력 digest가 있으며, 입력은 제출과 함께 Run 소유 blob에 저장된다. 같은 Run에 다른 입력/Step/backend를 보내면 거부한다.
+- 제출은 **머신별 요청 prepare → 기존 submitRun commit → Runner submit**이다. 기록된 Run에 로컬 요청이 없으면 새로 만들지 않고 unknown을 반환한다. 최초 시작 전에 영구 launch claim을 만들고 detached supervisor를 실행한다. 시작 표식 뒤 spawn/응답 전 중단은 unknown이며 자동 재시작하지 않는다.
+- supervisor가 Task worktree에서 실제 fake Worker를 실행하고 종료 상태와 출력 파일 스냅샷을 로컬 결과에 게시한다. 호출자가 종료돼도 이어간다. live 조회는 loopback 응답의 실행 UUID를 확인한다. PID/출력/stdout 부재만으로 실패를 추정하지 않는다. supervisor도 중단되어 확인할 수 없으면 unknown이다.
+- **출력은 파일로 받는다.** 조회/수집 시 기존 worker-output 스키마로 검증한다. 확인된 비정상 종료(process_exit)와 잘못된 JSON/스키마 또는 exit 0 뒤 파일 누락(invalid_output)을 구별한다. failRun은 해당 실패 종류를 Run에 기록한다. 자동 출력 재시도는 하지 않는다.
+- 수집은 기존 completeRun의 한 commit으로 Run·출력 blob·Artifact 버전·Step 전이·이벤트를 기록한다. 이미 terminal인 Run은 수집 영수증이므로 재수집 때 Artifact나 이벤트를 추가하지 않는다. Store 오류를 Worker 실패로 바꾸지 않는다.
+- 머신별 경로/PID/포트/출력 파일은 명시적 runner-dir 안에만 둔다. 공유 데이터 및 Task worktree 밖을 사용한다. 관련 로컬 기록도 schemas가 기준이며 생성 타입은 커밋하지 않는다. 파일 게시 방식은 프로세스 crash를 대상으로 하고 전원 장애 내구성은 보장하지 않는다.
+- 현재 fake는 worker/write와 명시적 시험 입력만 지원한다. read 격리, 실제 AI, resume, 메시지, stream/transcript, cancel은 미지원이며 capabilities와 요청 검증에 드러난다. Context/Ledger 자동 조립, Gate, 전체 advance도 미구현이다. 앞으로 resume을 구현하더라도 실패 시 Context 기반 새 세션 경로를 갖춰야 한다(ADR-0010).
+- 기존 기록 전용 submitRun/completeRun/failRun과 수동 역할 운영은 유지한다. Worker의 work_notes와 packet_gaps는 기존 스키마/기록 규약을 따른다. roles의 도구 중립성은 유지하며 fake 입력 해석은 어댑터 밖에 두지 않는다.
 
 ## 9. 여러 프로젝트와 동시 진행
 

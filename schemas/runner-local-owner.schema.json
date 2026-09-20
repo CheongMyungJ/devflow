@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/runner-local-owner.schema.json",
+  "title": "RunnerLocalOwner",
+  "description": "머신별 supervisor 조회 주소. PID는 수동 확인 보조 정보이며 생존 판정에 사용하지 않는다.",
+  "type": "object", "additionalProperties": false, "required": ["pid", "port", "executionId"],
+  "properties": {
+    "pid": { "type": "integer", "minimum": 1, "description": "supervisor PID. PID 재사용 때문에 이것만으로 실행 중이라 판단하지 않는다." },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "loopback TCP 확인용 임시 포트." },
+    "executionId": { "type": "string", "format": "uuid", "description": "TCP 응답과 대조하는 실행 식별자. 원격 인증 토큰이 아니다." }
+  }
+}

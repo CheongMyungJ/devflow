@@ -3,7 +3,7 @@
 - 코드: `src/commands/`, `src/queries/`
 - Store 의 계약은 `docs/design/store.md` 1절과 `src/store/types.ts` 가 기준이다. 이 문서는 그 계약을 **쓰는 쪽**이 지킬 것을 정한다.
 - commands/queries 는 사람과 외부가 시스템에 접근하는 유일한 경로다(AGENTS.md 1번). CLI, 서버, Orchestrator 는 이 함수들만 부른다.
-- 이 문서의 한 commit·변경 없음 오류 규약은 **기록 command**의 것이다. Git을 실행하는 `prepareWorkspace`는 ADR-0018에 따른 다단계 예외이며 8절을 따른다.
+- 이 문서의 한 commit·변경 없음 오류 규약은 **기록 command**의 것이다. Git을 실행하는 `prepareWorkspace`는 ADR-0018에 따른 다단계 예외이며 8절을 따른다. Worker 실행은 ADR-0019와 [Runner 계약](runner.md)을 따른다. `submitWorker`는 로컬 준비→공유 제출→외부 시작이 원자적이지 않으며 `ExecutionError` 뒤에도 실행/기록이 남을 수 있다. `collectWorker`는 기존 완료/실패 command로 기록하고 이미 terminal인 Run은 재사용한다.
 
 ## 1. 의존하는 것과 받는 방식
 
