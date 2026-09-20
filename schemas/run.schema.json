@@ -5,53 +5,186 @@
   "description": "AI 세션 실행 한 번의 기록. 어떤 백엔드·모델로, 어떤 경로(resume/새 세션)로 실행되었는지 남긴다 (ADR-0010).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "task_id", "role", "access", "backend", "session_path", "status", "submitted_at"],
+  "required": [
+    "id",
+    "task_id",
+    "role",
+    "access",
+    "backend",
+    "session_path",
+    "status",
+    "submitted_at"
+  ],
   "properties": {
     "execution": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "description": "관리형 Runner 실행의 공유 식별자. 머신별 경로/PID/포트는 저장하지 않는다. 없는 옛 Run은 기록 전용이다.",
-      "required": ["id", "workspace_id", "input_sha256"],
+      "required": [
+        "id",
+        "workspace_id",
+        "input_sha256"
+      ],
       "properties": {
-        "id": { "type": "string", "format": "uuid", "description": "Store 간에도 충돌하지 않는 실행 UUID. task_id와 Run id와 함께 조회한다." },
-        "workspace_id": { "type": "string", "format": "uuid", "description": "준비된 Task Workspace 식별자." },
-        "input_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "정규화한 worker-execution-input의 SHA256. 다른 입력으로 재제출하면 거부한다." }
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Store 간에도 충돌하지 않는 실행 UUID. task_id와 Run id와 함께 조회한다."
+        },
+        "workspace_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "준비된 Task Workspace 식별자."
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "정규화한 worker-execution-input의 SHA256. 다른 입력으로 재제출하면 거부한다."
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "설정 해석 전 호출 입력 digest. 재제출 시 현재 설정을 다시 적용하지 않기 위한 식별자."
+        }
       }
     },
-    "failure_kind": { "enum": ["process_exit", "invalid_output"], "description": "관리형 실행에서 확인된 실패 종류. unknown/running은 실패로 기록하지 않는다." },
-    "id": { "type": "string", "pattern": "^R-[0-9]{3,}$" },
-    "task_id": { "type": "string" },
-    "step_id": { "type": "string" },
-    "role": { "enum": ["intake", "worker", "reviewer", "planner"] },
+    "failure_kind": {
+      "enum": [
+        "process_exit",
+        "invalid_output",
+        "cancelled",
+        "timeout",
+        "read_violation"
+      ],
+      "description": "관리형 실행에서 확인된 실패 종류. unknown/running은 실패로 기록하지 않는다."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^R-[0-9]{3,}$"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "step_id": {
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "intake",
+        "worker",
+        "reviewer",
+        "planner"
+      ]
+    },
     "purpose": {
       "description": "이 실행의 목적.",
-      "enum": ["execute", "revise", "answer_question", "review", "plan", "intake"]
+      "enum": [
+        "execute",
+        "revise",
+        "answer_question",
+        "review",
+        "plan",
+        "intake"
+      ]
     },
-    "access": { "enum": ["read", "write"], "description": "어댑터가 각 백엔드의 권한 설정으로 매핑한다." },
-    "backend": { "type": "string", "description": "claude-code | codex | fake | …" },
-    "backend_version": { "type": "string" },
-    "model": { "type": "string" },
-    "backend_session_id": { "type": "string", "description": "백엔드의 세션 ID. 그 백엔드만 해석하는 불투명한 값이며 resume 에만 쓴다." },
+    "access": {
+      "enum": [
+        "read",
+        "write"
+      ],
+      "description": "어댑터가 각 백엔드의 권한 설정으로 매핑한다."
+    },
+    "backend": {
+      "type": "string",
+      "description": "claude-code | codex | fake | …"
+    },
+    "backend_version": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "backend_session_id": {
+      "type": "string",
+      "description": "백엔드의 세션 ID. 그 백엔드만 해석하는 불투명한 값이며 resume 에만 쓴다."
+    },
     "session_path": {
       "description": "new: Context 패킷으로 새 세션. resumed: 이전 세션을 이어감. resume_failed_new: resume 실패 후 새 세션으로 대체.",
-      "enum": ["new", "resumed", "resume_failed_new"]
+      "enum": [
+        "new",
+        "resumed",
+        "resume_failed_new"
+      ]
     },
     "performer": {
       "description": "이 역할을 수행한 세션이 Context 패킷 밖의 맥락을 갖고 있었는가. isolated_session: 이 역할만을 위해 띄운 독립 세션이 수행했다 — 세션이 아는 것은 Context 패킷(과 거기서 참조되는 것)뿐이다. conversation_session: 사람과 대화하며 다른 일(Intake, Orchestrator 의 수동 운영 등)을 하던 대화 세션이 이 역할을 겸했다 — 패킷에 없는 대화 맥락을 가진 채 수행했으므로 그 산출물은 '패킷만으로 충분했는가' 의 근거가 되지 못한다. session_path 와는 다른 축이다: session_path 는 세션이 어떻게 시작되었는가(새로 띄웠는가, 이전 Run 의 세션을 이어갔는가)이고, 독립 세션을 resume 한 Run 은 session_path=resumed, performer=isolated_session 이다. 없으면 기록하지 않은 것이다(이 필드가 생기기 전의 옛 기록 — 어느 쪽이었는지는 Run 만으로는 알 수 없다). 새 Run 에는 항상 적는다.",
-      "enum": ["isolated_session", "conversation_session"]
+      "enum": [
+        "isolated_session",
+        "conversation_session"
+      ]
     },
-    "resumed_from": { "type": "string", "description": "이어간(또는 이어가려 한) 이전 Run ID." },
-    "status": { "enum": ["submitted", "running", "completed", "failed", "cancelled", "invalidated"] },
-    "invalid_reason": { "type": "string", "description": "예: 읽기 전용 실행인데 worktree 가 변경됨, 출력이 스키마 검증 실패." },
-    "output_attempts": { "type": "integer", "minimum": 1, "description": "출력 파일 스키마 검증 재시도 횟수 포함." },
+    "resumed_from": {
+      "type": "string",
+      "description": "이어간(또는 이어가려 한) 이전 Run ID."
+    },
+    "status": {
+      "enum": [
+        "submitted",
+        "running",
+        "completed",
+        "failed",
+        "cancelled",
+        "invalidated"
+      ]
+    },
+    "invalid_reason": {
+      "type": "string",
+      "description": "예: 읽기 전용 실행인데 worktree 가 변경됨, 출력이 스키마 검증 실패."
+    },
+    "output_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "출력 파일 스키마 검증 재시도 횟수 포함."
+    },
     "packet_gaps": {
       "description": "이 Run 의 역할 세션이 보고한 '받은 Context 패킷에서 부족했거나 모호했던 점'. 모든 역할에 공통인 기록 자리다. 역할 세션은 자기 출력 파일의 최상위 packet_gaps 에 적고(Planner: Decision 의 packet_gaps, Worker: worker-output.schema.json, Reviewer: reviewer-output.schema.json), 시스템이 출력을 받아들일 때 그 값을 그대로 여기로 옮긴다. 빈 배열은 '부족한 것이 없었다' 는 보고다. 필드가 없으면 보고하지 않은 것이다(이 필드가 생기기 전의 옛 기록, 또는 출력을 내지 못하고 끝난 Run).",
       "type": "array",
-      "items": { "type": "string", "minLength": 1, "description": "부족했거나 모호했던 점 하나. 무엇이 없었거나 모호했고 그래서 어떻게 했는지를 문장으로 쓴다. 로컬 경로를 쓰지 않는다." }
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "부족했거나 모호했던 점 하나. 무엇이 없었거나 모호했고 그래서 어떻게 했는지를 문장으로 쓴다. 로컬 경로를 쓰지 않는다."
+      }
     },
-    "transcript_key": { "type": "string", "description": "백엔드 원본 transcript 의 Store 키." },
-    "normalized_transcript_key": { "type": "string", "description": "정규화 이벤트(text/tool_call/tool_result/end) 의 Store 키." },
-    "system_sha": { "type": "string", "description": "실행 당시 devflow repo 의 commit SHA." },
-    "submitted_at": { "type": "string", "format": "date-time" },
-    "ended_at": { "type": "string", "format": "date-time" }
+    "transcript_key": {
+      "type": "string",
+      "description": "백엔드 원본 transcript 의 Store 키."
+    },
+    "normalized_transcript_key": {
+      "type": "string",
+      "description": "정규화 이벤트(text/tool_call/tool_result/end) 의 Store 키."
+    },
+    "system_sha": {
+      "type": "string",
+      "description": "실행 당시 devflow repo 의 commit SHA."
+    },
+    "submitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reasoning": {
+      "$ref": "execution-settings.schema.json#/properties/reasoning"
+    },
+    "resolved_settings": {
+      "$ref": "resolved-execution-settings.schema.json"
+    },
+    "process_ended_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Supervisor가 확인한 프로세스 종료 시각. ended_at은 결과 수집 시각이다."
+    }
   }
 }

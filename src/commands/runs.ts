@@ -4,7 +4,8 @@
 import { blobRef } from '../store/blob-ref.js';
 import { artifactRef, isCanonicalId } from '../store/refs.js';
 import type { BlobOwner, BlobWrite, CommitResult, EntityWrite, NewEvent } from '../store/types.js';
-import type { ArtifactVersion, Run, Step, WorkerExecutionInput } from '../types/generated/index.js';
+import type { ArtifactVersion, Run, Step, WorkerExecutionInput, RoleExecutionInput, RunnerLocalResult } from '../types/generated/index.js';
+import { completionFields } from '../runner/completion.js';
 import {
   checkKeys,
   commitAfterReading,
@@ -28,7 +29,7 @@ import { nextStepStatus, statusChangedEvents } from './transitions.js';
 export interface SubmitRunInput {
   /** 실행 command 내부용: 로컬 prepare 뒤 입력 blob과 함께 기록한다. */
   execution?: NonNullable<Run['execution']>;
-  executionInput?: WorkerExecutionInput;
+  executionInput?: WorkerExecutionInput | RoleExecutionInput;
   taskId: string;
   /** worker·reviewer 는 필수, planner 는 없다(Task 수준). */
   stepId?: string;
@@ -39,6 +40,8 @@ export interface SubmitRunInput {
   backend: string;
   backendVersion?: string;
   model?: string;
+  reasoning?: Run['reasoning'];
+  resolvedSettings?: Run['resolved_settings'];
   backendSessionId?: string;
   sessionPath: Run['session_path'];
   performer?: Run['performer'];
@@ -51,7 +54,7 @@ export interface SubmitRunInput {
   note?: string;
 }
 
-const SUBMIT_KEYS = ['taskId', 'stepId', 'role', 'purpose', 'access', 'backend', 'backendVersion', 'model', 'backendSessionId', 'sessionPath', 'performer', 'resumedFrom', 'expectId', 'packet', 'note', 'execution', 'executionInput'];
+const SUBMIT_KEYS = ['taskId', 'stepId', 'role', 'purpose', 'access', 'backend', 'backendVersion', 'model', 'reasoning', 'resolvedSettings', 'backendSessionId', 'sessionPath', 'performer', 'resumedFrom', 'expectId', 'packet', 'note', 'execution', 'executionInput'];
 
 /**
  * Run 을 제출로 기록한다: Run(submitted), blob R-NNN.packet(주어지면), run.submitted, worker 가 defined 에서 부르면 step.yaml(running)과
@@ -60,13 +63,17 @@ const SUBMIT_KEYS = ['taskId', 'stepId', 'role', 'purpose', 'access', 'backend',
 export async function submitRun(ctx: CommandContext, input: SubmitRunInput): Promise<{ run: Run; result: CommitResult }> {
   checkKeys(input, SUBMIT_KEYS);
   if ((input.execution === undefined) !== (input.executionInput === undefined)) throw new RejectedInputError(['execution과 executionInput은 함께 필요하다']);
-  if (input.executionInput) rejectIf(schemaIssues('worker-execution-input', input.executionInput, 'executionInput'));
+  if (input.executionInput) rejectIf(schemaIssues(input.role === 'worker' ? 'worker-execution-input' : 'role-execution-input', input.executionInput, 'executionInput'));
   const { taskId, stepId, role } = input;
   const at = recordedAt(ctx.clock);
   let run!: Run;
 
   const result = await commitAfterReading(ctx, taskId, async () => {
     await openTask(ctx, taskId);
+    if (input.execution) {
+      const active = (await ctx.store.list('run', { taskId })).items.filter(r => r.execution && r.status === 'submitted');
+      if (active.length) throw new RejectedInputError(['Task has an uncollected managed execution; collect or confirm termination before another role starts']);
+    }
     const reasons: string[] = [];
     if (role === 'intake') reasons.push('role: intake Run 은 받지 않는다 — intake Run 을 닫는 command 가 없다 (commands.md 6.3)');
     if ((role === 'worker' || role === 'reviewer') && stepId === undefined) reasons.push(`stepId: ${role} 의 Run 은 Step 에 속한다`);
@@ -104,6 +111,8 @@ export async function submitRun(ctx: CommandContext, input: SubmitRunInput): Pro
         backend: input.backend,
         ...(input.backendVersion !== undefined ? { backend_version: input.backendVersion } : {}),
         ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.reasoning !== undefined ? { reasoning: input.reasoning } : {}),
+        ...(input.resolvedSettings !== undefined ? { resolved_settings: input.resolvedSettings } : {}),
         ...(input.backendSessionId !== undefined ? { backend_session_id: input.backendSessionId } : {}),
         session_path: input.sessionPath,
         ...(input.resumedFrom !== undefined ? { resumed_from: input.resumedFrom } : {}),
@@ -147,6 +156,7 @@ export interface ArtifactSource {
 }
 
 export interface CompleteRunInput {
+  receipt?: RunnerLocalResult['outcome'];
   taskId: string;
   runId: string;
   /** Worker 의 출력 파일(worker-output JSON) 원문. 필수(T-0006 F-001 3-가) — Run 의 packet_gaps 는 여기서 옮긴다. blob R-NNN.output.json 으로 남는다. */
@@ -159,7 +169,7 @@ export interface CompleteRunInput {
   note?: string;
 }
 
-const COMPLETE_KEYS = ['taskId', 'runId', 'workerOutput', 'workNotes', 'artifacts', 'outputAttempts', 'note'];
+const COMPLETE_KEYS = ['taskId', 'runId', 'workerOutput', 'workNotes', 'artifacts', 'outputAttempts', 'note', 'receipt'];
 const SHA = '[0-9a-f]{40}|[0-9a-f]{64}';
 const CODE_SOURCE = new RegExp(`^code:(${SHA})\\.\\.(${SHA})$`);
 const REPO_SOURCE = new RegExp(`^repo:(${SHA})\\.\\.(${SHA}):(.+)$`);
@@ -231,7 +241,7 @@ export async function completeRun(ctx: CommandContext, input: CompleteRunInput):
           created_at: at,
         } as ArtifactVersion;
       });
-      const done: Run = { ...run, status: 'completed', ...(input.outputAttempts !== undefined ? { output_attempts: input.outputAttempts } : {}), ended_at: at, packet_gaps: output.packet_gaps };
+      const done: Run = { ...run, ...completionFields(input.receipt), status: 'completed', ...(input.outputAttempts !== undefined ? { output_attempts: input.outputAttempts } : {}), ended_at: at, packet_gaps: output.packet_gaps };
       const blobs: BlobWrite[] = [{ owner, name: 'output.json', content: input.workerOutput }];
       if (input.workNotes !== undefined) blobs.push({ owner, name: 'work-notes', content: input.workNotes });
       const events: NewEvent[] = [
@@ -264,6 +274,7 @@ export async function submittedRun(ctx: CommandContext, taskId: string, runId: s
 // ---------------------------------------------------------------- failRun
 
 export interface FailRunInput {
+  receipt?: RunnerLocalResult['outcome'];
   failureKind?: Run['failure_kind'];
   taskId: string;
   runId: string;
@@ -280,7 +291,7 @@ export interface FailRunInput {
  * Step 의 status 는 바꾸지 않는다(다시 제출하면 running·revising 그대로 — 7절).
  */
 export async function failRun(ctx: CommandContext, input: FailRunInput): Promise<{ run: Run; result: CommitResult }> {
-  checkKeys(input, ['taskId', 'runId', 'reason', 'note', 'failedNotes', 'partialDiff', 'failureKind']);
+  checkKeys(input, ['taskId', 'runId', 'reason', 'note', 'failedNotes', 'partialDiff', 'failureKind', 'receipt']);
   const { taskId, runId } = input;
   if (input.reason.trim() === '') throw new RejectedInputError(['reason: 비어 있다']);
   const at = recordedAt(ctx.clock);
@@ -289,13 +300,13 @@ export async function failRun(ctx: CommandContext, input: FailRunInput): Promise
     await openTask(ctx, taskId);
     const before = await submittedRun(ctx, taskId, runId);
     return () => {
-      run = { ...before, status: 'failed', ended_at: at, ...(input.failureKind ? { failure_kind: input.failureKind } : {}) };
+      run = { ...before, ...completionFields(input.receipt), status: input.failureKind === 'cancelled' ? 'cancelled' : input.failureKind === 'read_violation' ? 'invalidated' : 'failed', ended_at: at, ...(input.failureKind ? { failure_kind: input.failureKind } : {}) };
       const owner: BlobOwner = { taskId, ...(before.step_id !== undefined ? { stepId: before.step_id } : {}), runId };
       const blobs: BlobWrite[] = [];
       if (input.failedNotes !== undefined) blobs.push({ owner, name: 'failed', content: input.failedNotes });
       if (input.partialDiff !== undefined) blobs.push({ owner, name: 'partial.diff', content: input.partialDiff });
       const event: NewEvent = {
-        type: 'run.failed',
+        type: input.failureKind === 'cancelled' ? 'run.cancelled' : 'run.failed',
         actor: 'system',
         ...(before.step_id !== undefined ? { step_id: before.step_id } : {}),
         run_id: runId,

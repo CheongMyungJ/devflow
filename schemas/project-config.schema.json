@@ -5,7 +5,7 @@
   "description": "대상 repo 루트에 두는 설정. 이 repo 에서 검증을 어떻게 실행하는지 정의한다. Step 의 verify.deterministic 에서 '@이름' 으로 참조한다.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["commands"],
+  "anyOf": [{ "required": ["commands"] }, { "required": ["execution"] }],
   "properties": {
     "commands": {
       "description": "이름 → 명령. 예: build, test, lint. repo 루트(= Task worktree 루트) 기준으로 실행된다.",
@@ -13,18 +13,30 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["run"],
+        "required": [
+          "run"
+        ],
         "properties": {
-          "run": { "type": "string" },
-          "timeout_sec": { "type": "integer", "minimum": 1 },
-          "description": { "type": "string", "description": "Planner 가 언제 이 명령을 검증에 쓸지 판단하는 데 참고한다." }
+          "run": {
+            "type": "string"
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": {
+            "type": "string",
+            "description": "Planner 가 언제 이 명령을 검증에 쓸지 판단하는 데 참고한다."
+          }
         }
       }
     },
     "setup": {
       "description": "새 worktree 에서 검증 전에 한 번 실행할 준비 명령 (의존성 설치 등).",
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "exclusive": {
       "description": "true 면 이 프로젝트의 Gate 를 동시에 실행하지 않는다. 포트·로컬 DB·공유 캐시처럼 worktree 밖 자원을 쓰는 경우 (ADR-0008).",
@@ -34,11 +46,17 @@
     "environment": {
       "description": "필요한 런타임·도구. 나중에 컨테이너 이미지 정의로 옮겨진다.",
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "notes_for_ai": {
       "description": "이 repo 에서 작업할 때 알아야 할 것 (규칙 문서 위치, 건드리면 안 되는 영역 등).",
       "type": "string"
+    },
+    "execution": {
+      "$ref": "execution-config.schema.json",
+      "description": "역할별 실행 설정. 검증 commands와 독립적으로 설정할 수 있다."
     }
   }
 }

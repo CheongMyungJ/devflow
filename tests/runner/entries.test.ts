@@ -9,6 +9,25 @@ import { event, step } from '../store/records.js';
 import { REPO_ROOT } from '../store/paths.js';
 
 const entry = entryRunner('worker');
+it('execution entry resolves file settings and reports their logical sources', () => {
+  const global = entry.file(stringify({ roles: { worker: { timeout_seconds: 20 } } }));
+  const project = entry.file(stringify({ execution: { defaults: { timeout_seconds: 30 } } }));
+  const request = entry.file(JSON.stringify({ action: 'settings', role: 'worker' }));
+  const result = entry.run('execution', [join(entry.inputs, 'unused-data'), request, '--runner-dir', join(entry.inputs, 'unused-runner'), '--config', global, '--project-config', project]);
+  expect(result.status, result.all).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ values: { backend: 'fake', timeout_seconds: 30 }, sources: { timeout_seconds: 'project.defaults' } });
+});
+
+it('execution entry creates an Intake draft and reads it in another process', () => {
+  const args = [join(entry.inputs, 'intake-data')], options = ['--runner-dir', join(entry.inputs, 'intake-runner'), '--actor', 'human:tester'];
+  const created = entry.run('execution', [...args, entry.file(JSON.stringify({ action: 'intake-create', text: '새 작업을 정의하자' })), ...options]);
+  expect(created.status, created.all).toBe(0);
+  const draft = JSON.parse(created.stdout);
+  const result = entry.run('execution', [...args, entry.file(JSON.stringify({ action: 'intake-status', id: draft.id })), ...options]);
+  expect(result.status, result.all).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ collected: true, draft: { id: draft.id, phase: 'intent', revision: 1 } });
+});
+
 it('submit/status/collect entrypoints recover through independent Node processes', async () => {
   const url = 'https://example.invalid/runner-test.git';
   const s = await ready(url);

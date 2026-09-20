@@ -9,7 +9,8 @@ const schemas = loadSchemas();
 /** Schema has only these fields; property order in caller JSON does not affect identity. */
 export function executionInputText(input: WorkerExecutionInput): string {
   return JSON.stringify({ prompt: input.prompt, artifacts: input.artifacts.map(({ name, source }) => ({ name, source })),
-    ...(input.backend !== undefined ? { backend: input.backend } : {}), ...(input.model !== undefined ? { model: input.model } : {}) });
+    ...(input.backend !== undefined ? { backend: input.backend } : {}), ...(input.model !== undefined ? { model: input.model } : {}),
+    ...Object.fromEntries(['reasoning', 'timeout_seconds', 'isolation', 'output_retries', 'resolved_settings', 'context_packet'].filter(k => k in input).map(k => [k, (input as unknown as Record<string, unknown>)[k]])) });
 }
 export const inputDigest = (input: WorkerExecutionInput) => createHash('sha256').update(executionInputText(input)).digest('hex');
 export function executionKey(run: Run): ExecutionKey {

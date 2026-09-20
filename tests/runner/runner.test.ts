@@ -119,7 +119,7 @@ describe('recoverable fake Worker', () => {
     await expect(runner.prepare({ ...a, prompt: spec('fail').prompt })).rejects.toThrow(/different input/);
     await expect(runner.prepare({ ...req('T-0003'), access: 'read' })).rejects.toThrow(/unsupported/);
     await expect(runner.prepare({ ...req('T-0003'), resume: { backendSessionId: 'old' } } as RunRequest)).rejects.toThrow(/unsupported option/);
-    expect(Object.values(runner.capabilities)).toEqual([false, false, false, false]);
+    expect(runner.capabilities).toEqual({ supportsResume: false, supportsLiveMessage: false, supportsStream: true, supportsCancel: true });
     // A PID alone, including this live test process, must never prove execution liveness.
     const c = req('T-0003'); await runner.prepare(c);
     const dir = join(root, 'runner', c.key.taskId, c.key.runId, c.key.executionId);

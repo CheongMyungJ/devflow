@@ -1,87 +1,77 @@
-# Worker 실행 계약
+# Runner 실행 계약
 
-결정 배경은 [ADR-0019](../adr/0019-recoverable-worker-execution.md), [ADR-0020](../adr/0020-local-cli-worker-adapters.md). 필드 정의는 `schemas/run.schema.json`, `worker-execution-input.schema.json`, `fake-worker-input.schema.json`, `runner-local-*.schema.json`이 기준이다.
+현재 구현은 ADR-0019·0020의 복구 가능한 Worker를 ADR-0021의 역할 실행으로 확장한다. 필드 정의는 `schemas/*.json`, 사용 예는 [실행 사용법](../execution-usage.md)을 따른다.
 
-## 공개 경로
+## 실행과 수집
 
-- `commands.submitWorker(ctx, { taskId, stepId, runId, input })`: 준비된 Workspace에서 실행을 제출한다. `runId`는 다음 예상 ID이며 Store가 발급/검사한다. 응답 대기 중 종료돼도 같은 ID/입력으로 재호출한다.
-- `queries.getWorkerExecution(ctx, { taskId, runId })`: 실행 관찰 또는 이미 수집한 Run/Artifact를 반환한다. 공유 기록을 쓰지 않는다.
-- `commands.collectWorker(ctx, { taskId, runId })`: 종료가 확인된 결과만 검증·기록한다. prepared/running/unknown은 그대로 반환한다.
+`Runner.prepare`는 요청·실행 계획을 로컬에 고정하고 실행하지 않는다. `submit`은 같은 요청에 대해서만 최초 실행을 허용한다. `inspect`는 완료를 기다리지 않고 상태를 조회한다. 신규 옵션도 스키마 → digest → 요청 → 어댑터 검사 → 실행 기록을 함께 통과한다.
 
-확장 Context는 기존 Store/Workspace와 Runner를 주입받는다. `submitRun`은 제출 기록만, `completeRun`은 Worker 출력 스키마 검사와 Artifact 발급·Step 전이, `failRun`은 확인한 실패 기록을 맡는다. 세 명령의 기존 기록 전용 동작은 유지한다. 관리형 Run의 반복 수집은 collectWorker가 terminal Run을 확인하여 멱등화한다. 외부에서 기록 전용 complete-run/fail-run으로 실행 중인 관리형 Run을 임의로 닫지 않는다.
-
-공유 `run.status`는 수집 전까지 `submitted`로 유지한다. 실제 실행 관찰은 응답의 `execution.state`이며, `running` 조회만으로 공유 이벤트를 추가하지 않는다.
-
-입력과 Artifact 출처 정책은 제출 때 고정한다. backend와 model도 digest에 포함한다. 실제 백엔드는 backend를 입력에 명시하고 Context의 Runner 및 CLI 선택과 일치시킨다. 생략은 기존 fake만 뜻한다. model 생략 시 CLI 기본값을 사용하며 실제 선택 모델을 추측하지 않는다. 객체의 키 순서는 digest에 영향을 주지 않으며 prompt 문자열과 배열 순서는 입력의 일부다. 기존 Run에 다른 입력/Step/backend를 보내면 거부한다. fake의 기존 고정 출처는 Git commit 실재를 검증하지 않는 시험 입력으로 유지한다. Context/Ledger 자동 조립은 없다.
-
-## 로컬 실행과 상태
-
-Runner는 `prepare / submit / inspect`를 제공한다. `prepare`는 실행하지 않고 요청만 고정한다. `submit`은 같은 요청에만 최초 시작을 허용한다. `inspect`는 완료를 기다리지 않고 상태/결과 스냅샷을 반환한다(TCP 확인 타임아웃 700ms). 한 번의 submit은 supervisor 시작 확인을 약 1초 동안 시도하며 진행 중인 단일 조회 시간은 추가될 수 있다. Worker 완료를 기다리지는 않는다.
-
-| 상태 | 의미와 호출자 행동 |
+| 관찰 상태 | 의미와 처리 |
 |---|---|
-| prepared | 공유 제출과 로컬 요청이 있고 시작 시도 전. 같은 submit-worker로 시작 가능 |
-| running | 해당 실행 UUID를 응답하는 supervisor가 살아 있다. 나중에 status/collect |
-| completed, collected=false | exit 0과 출력 파일을 확인했으며 worker-output 스키마도 통과. collect로 기록 |
-| failed, collected=false | 확인된 process_exit 또는 invalid_output. collect로 failRun 기록 |
-| unknown | 로컬 기록 유실/손상, 시작 표식만 존재, supervisor 불통 등. 자동 실패 처리나 새 실행 금지 |
-| collected=true | 공유 Run이 terminal. 로컬 기록이 없어도 기존 공유 결과 반환 |
+| prepared | 로컬 준비 완료, 최초 시작 전. 동일 제출로 시작 가능 |
+| running | 해당 실행 UUID를 응답하는 supervisor가 살아 있음 |
+| completed, collected=false | 종료와 출력 스냅샷 확인. 역할 출력 검증 뒤 collect로 기록 |
+| failed, collected=false | 확인된 프로세스·출력·timeout·취소·read 위반. collect로 실패 종류 기록 |
+| unknown | 실행 증거 유실·손상·supervisor 불통. 자동 실패·재실행 금지 |
+| collected=true | 공유 기록 반영 완료. 로컬 실행 기록이 없어도 기존 결과 반환 |
 
-스키마는 통과했지만 명시한 `blob:work-notes`를 공급할 work_notes가 없으면 수집 시 invalid_output으로 실패 처리한다. Step 상태 등 기존 completeRun 조건이 바뀌었으면 수집을 거부하고 종료 결과를 남겨 둔다. Store 실패를 Worker 실패로 기록하지 않는다.
+Worker의 `blob:work-notes`가 필요한데 출력에 노트가 없으면 수집 때 거부한다. 역할 출력과 실행 성공은 별개다. Reviewer의 class A/pass 모순, Planner 출력 스키마 위반도 받아들이지 않는다. 기존 command의 Artifact·Step 상태 조건이 바뀌면 수집을 거부하고 로컬 결과를 보존한다. Store 오류를 모델 실패로 기록하지 않는다.
 
-머신별 파일은 `<runner-dir>/<Task>/<Run>/<UUID>/` 아래에 있다. `request.json`, `launch.json`, `launch-claim/`, `supervisor-claim/`, `supervisor.json`, `process.json`(spawn 진단), `result.json`, `stdout.log`, `stderr.log`과 원자적 게시 도중 남은 임시 파일이 있을 수 있다. 실제 출력은 `output/worker-output.json`, fake는 기존 `output.json` 및 `worker.json`을 쓴다. 실행 기록의 위치는 공통 local 구현만 알며 어댑터는 전달받은 실행 디렉터리 안에서 출력 위치를 정한다. 공유 기록에는 머신 경로/PID/포트를 자동으로 넣지 않는다. runner-dir는 공유 data-dir 및 Task worktree 밖에 두며 같은 머신·같은 디렉터리를 계속 사용한다.
+관리형 실행은 한 Task에 한 번에 하나다. 이전 실행이 종료돼도 아직 수집되지 않았으면 다음 역할을 제출하지 않는다. 기존 기록 전용 submitRun과 수동 운영 입구는 유지한다.
 
-## 수동 확인
+## 식별과 설정 고정
 
-unknown이면 먼저 원래 `--runner-dir`와 머신을 사용했는지 확인한다. 원래 감독 프로세스가 응답하거나 종료 영수증이 나중에 생기면 같은 status/collect로 회수할 수 있다. 출력만 있거나 PID가 존재한다는 이유로 완료/실패를 기록하지 않는다. supervisor가 사라져도 Worker는 남아 있을 수 있다.
+Task ID + Run ID + 실행 UUID가 실행의 전체 식별자다. 발행 전 Intake는 같은 로컬 키의 소유자로 I-UUID를 사용하지만 공유 Run으로 가장하지 않는다. 실행 UUID는 Store 간 충돌도 피한다.
 
-영구 시작 표식은 자동/수동 재시도용 잠금이 아니다. **삭제하여 같은 Run을 다시 실행하지 않는다.** 프로세스 명령줄·시작 정보와 Workspace 변경을 사람이 대조하고 기존 Worker가 더 실행될 수 없음을 확인한다. 그 뒤 회수가 불가능한 실행은 이유를 적어 기존 fail-run으로 종료 기록하고, 필요한 경우 새 Run ID로 제출한다. 손상된 결과를 프로그램이 덮어쓰거나 실행을 대체하지 않는다. Workspace 잠금/불완전 checkout의 수동 절차는 [Workspace 계약](workspace.md)을 따른다.
+설정은 전역 defaults/역할/작업 유형 → 프로젝트 defaults/역할/작업 유형 → 확정 Step 역할 설정 → 명시 실행 입력 순으로 합친다. 제품 기본값은 fake이고 실제 CLI 모델은 지정한 때만 명시 모델로 기록한다. backend 전환은 상속 model/reasoning을 지우며, null은 backend 기본값을 의미한다.
 
-## 미지원
+명시 입력 digest와 실효 설정을 포함한 실행 입력 digest를 제출 시 고정한다. 재제출은 저장된 입력과 비교하고, 조회·수집은 기록된 backend로 어댑터를 선택한다. 이후 설정 변경은 기존 실행을 바꾸지 않는다. 명시한 backend가 기존 기록과 다르면 거부한다.
 
-read 격리, resume, 메시지 전달, stream/transcript, cancel, 자동 출력 재시도, Gate, advance, 분산 실행, 실행 디렉터리 자동 정리는 제공하지 않는다. 네 어댑터의 해당 capabilities는 모두 false이며 인터페이스에 성공하는 stub을 두지 않는다. 추가 요청 옵션도 스키마에서 거부한다. 프로세스 crash 복구를 목표로 하며 전원 장애 내구성은 보장하지 않는다.
+## 복구
 
-## 공통 계층과 실제 CLI 어댑터
+제출은 로컬 prepare → 공유 submitRun → Runner 시작의 다단계다. 로컬 계획을 먼저, 준비 완료인 요청을 마지막에 게시한다. 공유 Run이 있는데 로컬 요청이 없으면 unknown이며 요청을 다시 만들지 않는다.
 
-공통 계층은 `src/runner/local/`이다. `LocalAdapter`는 요청 검증과 실행 계획 생성만 담당한다. 새 실행 옵션은 입력 스키마·digest·로컬 요청·어댑터 검증·계약 테스트를 함께 바꾼다. 임의 CLI 인자, read, 다른 역할, resume/session ID, 실행 중 메시지는 스키마/런타임에서 거부한다.
+최초 시작 전에 영구 launch claim을 만든다. supervisor 또한 별도 claim으로 중복 시작을 막는다. launch claim 뒤 spawn/응답 전 중단은 unknown이며 시작을 반복하지 않는다. supervisor는 Task cwd를 붙잡지 않고 Node 실행 위치에서 동작하며, 역할 프로세스만 지정된 workspace에서 실행한다.
 
-prepare는 실행 계획을 먼저 게시한 뒤 요청을 게시한다. submit은 저장된 계획을 사용한다. 부분 기록이나 손상은 덮어쓰지 않는다. 실행 파일은 shell 없이 인자 배열로 spawn하며 prompt는 stdin에 보낸다. Windows npm 설치는 PATH 아래 package의 bin을 읽어 Node 또는 native exe로 직접 실행한다. 사용자 지정 .cmd/.ps1 wrapper는 지원하지 않는다. API 조립에서 각 Runner의 선택적 `CliCommand`를 주입할 수 있지만 기존 실행의 계획은 바뀌지 않는다. 기존 fake 요청(backend 및 launch.json 없음)도 제한된 호환 경로로 처리한다.
+호출자가 종료돼도 supervisor는 역할 종료를 기다려 불변 결과를 게시한다. loopback 조회에서 실행 UUID를 확인하고, 응답이 없으면 종료 결과를 다시 읽는다. PID·stdout·출력 파일의 존재만으로 완료/실패를 추측하지 않는다. 옛 fake 준비 요청에서 backend와 launch.json이 없는 경우는 기존 호환 경로를 유지한다.
 
-supervisor 자체는 Node 실행 파일의 디렉터리를 cwd로 사용하고 관리 파일은 절대 경로로 접근한다. Task 디렉터리를 불필요하게 붙잡지 않기 위한 Windows 대응이다. 실제 Worker subprocess의 cwd는 반드시 검증된 Task worktree이며 어댑터가 새 worktree를 만들지 않는다.
+unknown이면 원래 머신·runner-dir, 기존 프로세스와 workspace 변경을 사람이 대조한다. launch claim이나 잠금을 삭제해 같은 Run을 다시 실행하지 않는다. 기존 실행이 더 쓰지 못함을 확인한 후에만 수동 실패 기록과 새 Run을 검토한다. 전원 장애·분산 실행의 보장은 하지 않는다.
 
-| backend | 신규 실행/권한 정책 | 확인한 로컬 버전 |
-|---|---|---|
-| fake | 기존 fake-worker-input과 Node subprocess | 내부 1 |
-| claude-code | print, text stdin, acceptEdits, permission-prompts none, no-session-persistence; 출력 디렉터리 add-dir | 2.1.278 |
-| codex | exec, workspace-write, approval_policy=never, Task cd, 출력 add-dir, ephemeral; stdin `-` | 0.154.0 |
-| opencode | run, Task dir, build agent; model은 provider/model; 프로세스 한정 설정으로 파일 도구 허용, 나머지 ask, 외부 출력 디렉터리만 허용 | 설치 없음, 실제 버전/연동 미검증 |
+## 역할과 읽기 실행
 
-stdout/stderr는 로컬 로그이며 역할 JSON은 파일만 읽는다. backend 전용 structured-output 옵션은 쓰지 않는다. 모델이 파일을 먼저 만들더라도 종료 영수증 전에는 completed가 아니다. 권한 없는 작업은 CLI 정책에 따라 거절되거나 출력 실패가 될 수 있다. 권한 전체 우회로 자동 재시도하지 않는다. CLI의 사용자/프로젝트/관리자 설정을 변경하지 않으며 이 설정과 CLI 버전 변경은 실행에 영향을 줄 수 있다. 기록된 model은 요청값이며 실제 모델 응답의 정규화/검증은 이번 범위 밖이다.
+- Worker: Task worktree에서 write 실행. `workspace:code`는 Git 구현이 clean Task branch, 기준 commit ancestry, 실제 종료 HEAD를 검사한다. AI가 주장한 SHA를 채택하지 않는다.
+- Planner: Task worktree에서 read 실행. JSON 출력은 planner-output으로 검증하고 recordDecision으로 기록한다. 다음 행동의 제안이 Task·Step의 자동 진행을 뜻하지 않는다.
+- Reviewer: Task worktree에서 read 실행. 특정 Artifact 버전을 고정한 새 세션이다. Store의 문서 내용·작업 노트는 패킷에 넣고, 코드 Artifact는 HEAD·branch·clean 상태를 제출 때와 프로세스 시작 직전에 확인한다. 출력은 reviewer-output으로 검증하고 recordGate로 기록한다. deterministic 증거를 입력으로 받을 수 있지만 Runner가 해당 명령을 실행했다는 뜻은 아니다.
+- Intake: Runner가 준비한 전용 빈 cwd에서 read 실행. 의도·정의 두 단계와 사람 확인은 별도 Intake 기록으로 관리한다. Task 발행 전 대상 repo 조회는 제공된 Context에 의존한다.
 
-호환성은 위 옵션을 모두 제공하는 CLI를 전제로 한다. Claude permission-prompts와 Codex ephemeral 등은 오래된 버전에 없을 수 있다. 임의 최소 버전을 추정하지 않는다. 지원되지 않는 옵션은 CLI의 확인된 실패로 처리하며 자동 옵션 제거/우회/업데이트는 없다. `--version`에서 숫자 버전을 읽을 수 없으면 `unavailable`을 기록한다. 실행 파일이 없으면 supervisor가 process_exit을 기록한다. 조회/수집에는 CLI 설치나 인증이 필요하지 않다.
+read 실행은 프로세스 시작 전후의 파일 내용을 비교한다. tracked/staged/unstaged/untracked/ignored 파일, HEAD와 index를 포함한다. symlink/junction이나 읽을 수 없는 파일로 검사할 수 없으면 거부한다. 위반 시 사용자 변경을 보존하고 invalidated로 기록한다. 이 검사는 시작·종료의 불변성을 확인하며, 중간에 변경했다가 되돌리는 행동이나 악의적인 하위 프로세스까지 감시하는 보장은 아니다.
 
-2026-09-20에 로컬 `--version`, Claude `--help`, Codex `exec --help`와 다음 공식 자료를 확인했다.
+CLI 수준의 제한도 함께 적용한다. Codex read는 read-only를 상속한 권한 프로필에서 출력 디렉터리만 쓰기를 허용한다. Claude Code는 읽기 도구와 지정 출력 쓰기만 제공한다. OpenCode는 read에서 출력 파일 외 edit를 거부한다. 시스템·관리자 정책은 우회하지 않는다.
 
-- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference)
-- [Codex CLI reference](https://developers.openai.com/codex/cli/reference)
-- [OpenCode CLI](https://opencode.ai/docs/cli/), [permissions](https://opencode.ai/docs/permissions/), [공식 run 구현의 stdin 처리](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/cli/cmd/run.ts)
+## Context와 환경
 
-OpenCode의 run/dir/model/build, stdin, OPENCODE_CONFIG_CONTENT를 이 자료에 맞췄다. 설치/로그인하거나 모델을 호출하지 않았다. **실제 OpenCode 연동은 미검증**이다. 문서와 개발 branch의 변동 가능성이 있으므로 사용 전 설치된 버전의 도움말/정책 호환성을 확인해야 한다.
+Worker 재작업에는 Task/Step, 이전 Artifact·작업 노트, Gate·Feedback을 고정해 제공한다. 이전 코드 Artifact와 현재 HEAD/dirty 상태가 다르면 재작업 시작을 거부하고 현재 변경의 정리를 요구한다. Planner·Reviewer에도 Task/Step·관련 Artifact·Gate·Feedback을 제공한다. 이전 대화는 필요 없다.
 
-## 실행 후 산출물 확정
+이것은 최소 Context다. Ledger 자동 조립, 모든 입력 참조 해석, 변경 요구의 의미적 합성, 다른 repo 고정 checkout은 R03·R04·R08에 남아 있다. 누락된 자료는 packet_gaps로 보고한다.
 
-실제 백엔드는 `blob:work-notes`(문서) 또는 `workspace:code`(code_change)만 받는다. Step outputs의 이름/타입을 제출 때 검사한다. 미래 SHA나 AI가 주장한 참조는 사용하지 않는다. fake의 기존 `code:`/`repo:` 입력과 기록 전용 complete-run은 유지한다.
+공통 프롬프트는 역할 지침·출력 스키마와 참조 스키마·프로젝트 루트 AGENTS.md를 실행 계획에 고정한다. Claude Code는 safe-mode·프로젝트 설정 선택·MCP 제한·메모리 비활성화를 사용한다. bare 모드는 기존 로그인을 사용하지 못하므로 쓰지 않는다. Codex는 사용자 설정·rules·자동 프로젝트 문서 주입을 끄고 프로젝트 지침을 명시적으로 전달하며 메모리·apps를 제한한다. Windows에서는 사용자 설정 차단으로 sandbox 설정이 사라지지 않도록 `windows.sandbox="elevated"`를 명시한다. 인증 정보는 기존 CLI의 인증 경로를 사용하고 사용자 설정 파일을 수정하지 않는다. OpenCode는 기존 설정 영향을 받을 수 있으며 전체 사용자 환경 격리는 아직 검증하지 않았다. strict 격리 요청은 미지원 오류다.
 
-`workspace:code`는 Workspace의 최초 고정 SHA를 base로 사용하며 exit 0 뒤 Git 구현이 Task branch의 clean HEAD와 ancestry를 확인한다. untracked 파일도 dirty에 포함된다. 성공 시 실제 base/head를 종료 영수증에 고정하고 collect는 이 참조로 completeRun을 호출한다. HEAD가 나중에 진행돼도 같은 영수증을 쓴다. 자동 git add/commit은 없으므로 코드 Artifact가 필요한 작업의 commit은 호출자가 명시하고 CLI 권한 내에서 수행돼야 한다. 미커밋 결과만 남았으면 invalid_output으로 실패를 수집하고 변경은 보존한다. 필요한 Git 증거가 누락/손상됐으면 사람이 확인한다.
+옵션 근거: [Claude CLI](https://code.claude.com/docs/en/cli-reference), [Claude 모델 설정](https://code.claude.com/docs/en/model-config), [Codex 설정](https://developers.openai.com/codex/config-reference/), [Codex Windows sandbox](https://developers.openai.com/codex/windows/windows-sandbox), [OpenCode CLI](https://opencode.ai/docs/cli/). 옵션·지원 범위는 어댑터와 테스트가 함께 관리한다. 모델 접근 권한이나 임의 버전의 지원을 보장하지 않는다.
 
-Blob 문서는 기존 work_notes를 Run blob으로 저장하고 Artifact의 논리적 content_key로 참조한다. 출력·Git 검증 성공 이후 Store 오류나 Step 전이 거부는 Worker 실패로 바꾸지 않는다. Artifact/Run/Step/이벤트는 기존 completeRun의 한 commit으로 일관되게 기록된다.
+## 취소, timeout, 메시지, 로그
 
-## 검증 재현
+취소 command는 사람의 요청을 먼저 기록한다. supervisor가 취소 또는 timeout을 감지하면 소유한 프로세스 트리에 종료를 요청하고 실제 종료 뒤에만 terminal 결과를 게시한다. Windows는 해당 child의 taskkill /T, POSIX는 실행용 프로세스 그룹을 사용한다. supervisor가 없으면 PID 추측으로 죽이지 않고 unknown을 유지한다. 실행 취소는 Task 전체 취소와 다르다.
 
-`npm test -- tests/runner`는 fake 및 세 어댑터의 통제된 Node CLI 테스트다. 실제 모델을 호출하지 않는다. 인자/입력/cwd/model, 성공/지연/비정상 종료/파일 누락/stdout만 존재/JSON·스키마 오류, 실행 파일 부재, caller SIGKILL, 중복/unknown/손상/supervisor 유실, 다른 Task의 같은 Run ID, 사용자 Git 변경 보존, 종료 SHA 스냅샷, 운영 입구를 검사한다.
+Claude Code stream input만 live 메시지를 지원한다. command는 메시지 ID·원문을 먼저 이벤트에 기록하고 Runner에 전달한다. 같은 ID의 다른 텍스트는 거부한다. supervisor는 전달 직전에 로컬 claim을 만들고 stdin 쓰기 결과를 영수증으로 남긴다. claim 뒤 중단되면 재전송하지 않는다. 전달 성공은 stdin에 썼다는 뜻이며 모델의 이해·수용을 보장하지 않는다. Reviewer 개입은 거부한다. Codex/OpenCode는 live 메시지 미지원 오류를 반환한다.
 
-실제 모델 테스트는 별도 opt-in 개발 검증기다. `node tests/runner/real-smoke.mjs claude-code` 또는 `node tests/runner/real-smoke.mjs codex`를 명시적으로 실행한다. 정상 인증된 CLI가 있어야 하며 비용/사용량이 발생할 수 있다. 임시 저장소와 테스트 데이터만 만들고 실행 중 caller를 SIGKILL한 뒤 새 Store/Runner로 회수한다. 자동 삭제는 하지 않으며 출력한 임시 경로에 `verification.json`과 로그를 남긴다. 이 검증기는 OpenCode 선택을 거부한다.
+원본 stdout/stderr, 통합 transcript, 정규화 이벤트를 실행 ID로 연결한 로컬 자료로 보관한다. 각 로그는 처음 8 MiB까지 보관하며 자동 삭제하지 않는다. log 조회는 byte offset과 nextOffset으로 제한된 범위를 읽는다. 원본 로그에 프롬프트·코드·경로가 있을 수 있어 공유 Store로 자동 복사하지 않는다. backend session ID와 실제 프로세스 종료 시각은 결과 수집 시 Run에 연결한다.
 
-이번 Windows 실측은 각 CLI 한 세션씩 성공했다. 지정된 `smoke.txt` 내용, Worker cwd, 역할 출력 스키마, Run completed, Artifact 1개, run.completed/artifact.version_added 각각 1회와 반복 수집을 확인했다. Claude는 sonnet 요청, Codex는 CLI 기본 모델을 사용했다. 실제 세션의 Artifact는 보고 문서이며 commit SHA 확정은 실제 Git + 대역 CLI 계약 테스트로 검증했다. 다른 OS, 모든 모델/CLI 버전, read 격리, 권한이 필요한 임의 shell 명령까지 검증한 것은 아니다.
+출력 자동 재시도는 기본 0, 설정해도 최대 2회다. 종료가 확인된 출력 위반만 대상으로 기존 잘못된 출력을 별도로 남기고 출력 수정 지시를 추가한 새 세션을 실행한다. unknown·프로세스 실패·read 위반은 재시도하지 않는다. resume는 사용자 결정에 따라 이번 범위 밖이며 네 backend 모두 supportsResume=false다.
 
-최종 자동 검증: Windows, Node.js 22.15.1에서 `npm run typecheck` 통과, `npm test` 46개 파일·678개 테스트 통과(2026-09-20). 이 중 실제 어댑터 대역 계약은 42개, 추가 운영 입구는 3개이며 기존 fake 회귀와 옛 준비 기록 호환 검사도 포함한다. 실제 모델 검증 2회는 이 테스트 수에 포함하지 않는다.
+## 검증 구분과 후속
+
+대역 계약 테스트와 실제 CLI/모델 검증은 구별한다. 대역은 인자·입력·cwd·설정 고정·실패·취소·read 위반·재수집·복구를 검사한다. 실제 모델 smoke는 별도로 명시 실행하며 OpenCode 호출은 자동으로 포함하지 않는다.
+
+2026-09-20에는 Windows / Node.js 22.15.1에서 `node tests/runner/real-smoke.mjs codex --reviewer`와 `node tests/runner/real-smoke.mjs claude-code --reviewer`를 실행했다. Codex 0.154.0(CLI 기본 모델)·Claude Code 2.1.278(sonnet 요청)이 각각 임시 repo에서 Worker 파일 생성 → 호출자 강제 종료 후 수집 → 문서 버전을 읽는 독립 Reviewer → Gate 기록을 통과했다. 실행 증거는 각 임시 root의 verification.json/reviewer-verification.json과 로컬 로그에 남긴다. 실제 모델의 코드 commit 검증·live 메시지·취소·출력 재시도까지 이 smoke로 검증했다고 주장하지 않는다. 해당 경로는 대역 계약 테스트로 검사한다.
+
+자동 Gate 실행·advance·HITL 대화 화면은 이번 Runner의 완료를 뜻하지 않는다. “승인 / 세션 접속” 화면은 기록·버전 경계를 유지하는 관리형 대화로 설계하며, 기존 backend CLI를 직접 여는 기능으로 대체하지 않는다.

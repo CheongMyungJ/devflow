@@ -41,6 +41,24 @@
       "type": "string",
       "description": "머신별 역할 출력 파일 위치.",
       "minLength": 1
+    },
+    "protocol": {
+      "enum": [
+        "text",
+        "claude-jsonl",
+        "codex-jsonl",
+        "opencode-jsonl",
+        "fake"
+      ],
+      "description": "어댑터의 전송/로그 프로토콜. backend 이름으로 공통 관리자가 옵션을 추측하지 않는다."
+    },
+    "liveInput": {
+      "type": "boolean",
+      "description": "세션 입력 프로토콜이 실행 중 메시지 전달을 지원하는가."
+    },
+    "protocolModule": {
+      "type": "string",
+      "description": "어댑터 소유의 입력/로그 해석 모듈 절대 경로. 로컬 실행 계획에서만 사용한다."
     }
   }
 }

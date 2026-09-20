@@ -4,14 +4,37 @@
   "title": "Step",
   "description": "Planner 가 하나씩 결정하는 작업 단위. Freeform 과 Skill 기반 Step 모두 이 스키마로 펼쳐진 뒤 같은 경로로 실행된다.",
   "type": "object",
-  "allOf": [{ "$ref": "#/$defs/definition" }],
+  "allOf": [
+    {
+      "$ref": "#/$defs/definition"
+    }
+  ],
   "unevaluatedProperties": false,
-  "required": ["id", "task_id", "status"],
+  "required": [
+    "id",
+    "task_id",
+    "status"
+  ],
   "properties": {
-    "id": { "type": "string", "pattern": "^step-[0-9]{3,}$" },
-    "task_id": { "type": "string" },
+    "id": {
+      "type": "string",
+      "pattern": "^step-[0-9]{3,}$"
+    },
+    "task_id": {
+      "type": "string"
+    },
     "status": {
-      "enum": ["proposed", "defined", "running", "checking", "in_review", "revising", "approved", "closed", "cancelled"]
+      "enum": [
+        "proposed",
+        "defined",
+        "running",
+        "checking",
+        "in_review",
+        "revising",
+        "approved",
+        "closed",
+        "cancelled"
+      ]
     }
   },
   "$defs": {
@@ -19,19 +42,45 @@
       "title": "StepDefinition",
       "description": "Step 의 정의 — Step 에서 id·task_id·status 를 뺀 것. Step 과 Decision 의 next_step.step(Planner 가 제안한 Step)이 이 정의 하나를 참조한다. 정의되지 않은 필드는 참조하는 쪽의 unevaluatedProperties: false 가 거부한다.",
       "type": "object",
-      "required": ["goal", "scope", "inputs", "outputs", "done_when", "verify", "approval"],
+      "required": [
+        "goal",
+        "scope",
+        "inputs",
+        "outputs",
+        "done_when",
+        "verify",
+        "approval"
+      ],
       "properties": {
         "skill": {
           "description": "Skill 에서 펼쳐진 Step 이면 'name@version', Freeform 이면 null. 기록 목적이며 실행 경로에는 영향이 없다.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
-        "goal": { "type": "string", "description": "이 Step 이 무엇을 달성해야 하는가." },
+        "goal": {
+          "type": "string",
+          "description": "이 Step 이 무엇을 달성해야 하는가."
+        },
         "scope": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "include": { "type": "array", "items": { "type": "string" }, "description": "작업 대상 (repo 상대 경로, 모듈, 주제)." },
-            "exclude": { "type": "array", "items": { "type": "string" }, "description": "하지 말아야 할 것 (예: '코드 수정 금지 — 분석만')." }
+            "include": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "작업 대상 (repo 상대 경로, 모듈, 주제)."
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "하지 말아야 할 것 (예: '코드 수정 금지 — 분석만')."
+            }
           }
         },
         "inputs": {
@@ -40,8 +89,14 @@
           "items": {
             "type": "string",
             "anyOf": [
-              { "description": "'task.brief' — Task 정의(문제, 목표, 성공 기준, 영향받는 사람과 시스템, 배경, 제약, 범위 밖, 열린 질문, AC).", "const": "task.brief" },
-              { "description": "'task.ledger' — Task Ledger.", "const": "task.ledger" },
+              {
+                "description": "'task.brief' — Task 정의(문제, 목표, 성공 기준, 영향받는 사람과 시스템, 배경, 제약, 범위 밖, 열린 질문, AC).",
+                "const": "task.brief"
+              },
+              {
+                "description": "'task.ledger' — Task Ledger.",
+                "const": "task.ledger"
+              },
               {
                 "description": "'artifact://<task>/<step>/<name>@v<N>' — 문서·코드 산출물의 특정 버전. 예: 'artifact://T-0012/step-002/repro-report@v2'. 버전(@v1 부터)은 필수다. <name> 은 영숫자로 시작하고 영숫자와 . _ - 만 쓴다.",
                 "type": "string",
@@ -71,11 +126,24 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "type"],
+            "required": [
+              "name",
+              "type"
+            ],
             "properties": {
-              "name": { "type": "string" },
-              "type": { "enum": ["document", "code_change", "data"] },
-              "description": { "type": "string" }
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "document",
+                  "code_change",
+                  "data"
+                ]
+              },
+              "description": {
+                "type": "string"
+              }
             }
           }
         },
@@ -83,7 +151,9 @@
           "description": "완료 조건. 검증 가능한 문장으로 쓴다.",
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "verify": {
           "description": "이 Step 에서 실행할 검증. 선언된 것만 실행된다. 둘 중 하나 이상은 비어 있지 않아야 한다 (ADR-0003).",
@@ -96,31 +166,86 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["name", "run"],
+                "required": [
+                  "name",
+                  "run"
+                ],
                 "properties": {
-                  "name": { "type": "string" },
-                  "run": { "type": "string", "description": "명령, 또는 '.devflow.yaml' 에 정의된 명령의 이름 (예: '@build', '@test')." },
-                  "expect": { "enum": ["success", "failure"], "default": "success", "description": "버그 재현 테스트처럼 실패해야 통과인 경우 'failure'." }
+                  "name": {
+                    "type": "string"
+                  },
+                  "run": {
+                    "type": "string",
+                    "description": "명령, 또는 '.devflow.yaml' 에 정의된 명령의 이름 (예: '@build', '@test')."
+                  },
+                  "expect": {
+                    "enum": [
+                      "success",
+                      "failure"
+                    ],
+                    "default": "success",
+                    "description": "버그 재현 테스트처럼 실패해야 통과인 경우 'failure'."
+                  }
                 }
               }
             },
             "semantic": {
               "description": "Quality Reviewer(AI)가 판단할 질문 목록.",
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             }
           },
           "anyOf": [
-            { "required": ["deterministic"], "properties": { "deterministic": { "type": "array", "minItems": 1 } } },
-            { "required": ["semantic"], "properties": { "semantic": { "type": "array", "minItems": 1 } } }
+            {
+              "required": [
+                "deterministic"
+              ],
+              "properties": {
+                "deterministic": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "required": [
+                "semantic"
+              ],
+              "properties": {
+                "semantic": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            }
           ]
         },
         "approval": {
           "description": "required: 사람 승인 필수. optional: Gate 통과 시 자동 진행. deterministic 이 비어 있으면 시스템이 required 로 강제한다.",
-          "enum": ["required", "optional"]
+          "enum": [
+            "required",
+            "optional"
+          ]
         },
-        "rationale": { "type": "string", "description": "Planner 가 이 Step 을 선택한 이유." },
-        "created_from": { "type": "string", "description": "이 Step 을 만든 Decision ID." }
+        "rationale": {
+          "type": "string",
+          "description": "Planner 가 이 Step 을 선택한 이유."
+        },
+        "created_from": {
+          "type": "string",
+          "description": "이 Step 을 만든 Decision ID."
+        },
+        "task_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "실행 설정 선택용 작업 유형. 생략하면 Task.type을 쓴다. Skill도 펼친 결과에 같은 필드를 쓴다."
+        },
+        "execution": {
+          "$ref": "execution-config.schema.json#/$defs/roles",
+          "description": "이 Step의 역할별 실행 옵션. 사람에게 확정된 Step에서만 적용한다."
+        }
       }
     }
   }

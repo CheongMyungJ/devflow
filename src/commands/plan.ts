@@ -2,7 +2,8 @@
 
 import { isCanonicalId } from '../store/refs.js';
 import type { CommitResult, EntityWrite, NewEvent } from '../store/types.js';
-import type { Decision, Run, Step } from '../types/generated/index.js';
+import type { Decision, Run, Step, RunnerLocalResult } from '../types/generated/index.js';
+import { completionFields } from '../runner/completion.js';
 import { checkKeys, commitAfterReading, humanId, isPositiveInteger, openTask, rejectIf, sameJson, schemaIssues, tail, withNote } from './common.js';
 import type { CommandContext } from './context.js';
 import { RejectedInputError } from './errors.js';
@@ -13,6 +14,7 @@ import { nextStepStatus, statusChangedEvents } from './transitions.js';
 // ---------------------------------------------------------------- recordDecision
 
 export interface RecordDecisionInput {
+  receipt?: RunnerLocalResult['outcome'];
   taskId: string;
   /** Planner 의 Run(submitted, Task 수준). */
   runId: string;
@@ -35,7 +37,7 @@ const DECISION_TOOL_FILLED = ['id', 'task_id', 'planner_run_id', 'created_at'] a
  * action 이 done·ask_human·abort·rework 이면 Task·Step 의 status 는 바꾸지 않는다.
  */
 export async function recordDecision(ctx: CommandContext, input: RecordDecisionInput): Promise<{ decision: Decision; step?: Step; result: CommitResult }> {
-  checkKeys(input, ['taskId', 'runId', 'output', 'outputText', 'outputAttempts', 'note']);
+  checkKeys(input, ['taskId', 'runId', 'output', 'outputText', 'outputAttempts', 'note', 'receipt']);
   const { taskId, runId } = input;
   if (typeof input.output !== 'object' || input.output === null || Array.isArray(input.output)) throw new RejectedInputError(['output: Decision 모양의 객체여야 한다']);
   if (input.outputAttempts !== undefined && !isPositiveInteger(input.outputAttempts)) throw new RejectedInputError(['outputAttempts: 1 이상의 정수여야 한다']);
@@ -76,6 +78,7 @@ export async function recordDecision(ctx: CommandContext, input: RecordDecisionI
       }
       const done: Run = {
         ...run,
+        ...completionFields(input.receipt),
         status: 'completed',
         ...(input.outputAttempts !== undefined ? { output_attempts: input.outputAttempts } : {}),
         ended_at: at,

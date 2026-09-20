@@ -26,8 +26,8 @@
       "properties": {
         "taskId": {
           "type": "string",
-          "pattern": "^T-[0-9]{4,}$",
-          "description": "Run 소유 Task."
+          "pattern": "^(T-[0-9]{4,}|I-[0-9a-f-]{36})$",
+          "description": "Task 또는 발행 전 Intake의 실행 소유 식별자. 옛 taskId 키를 유지한다."
         },
         "runId": {
           "type": "string",
@@ -58,14 +58,14 @@
         "planner",
         "intake"
       ],
-      "description": "역할. 현재 네 어댑터는 worker만 지원한다."
+      "description": "실행 역할. Worker는 write, 나머지는 read."
     },
     "access": {
       "enum": [
         "write",
         "read"
       ],
-      "description": "권한. 현재 네 어댑터는 write만 지원한다."
+      "description": "write는 Worker만 허용. read는 시작·종료 파일 스냅샷을 대조한다."
     },
     "prompt": {
       "type": "string",
@@ -106,6 +106,32 @@
           "minLength": 1,
           "description": "Task branch 이름."
         }
+      }
+    },
+    "reasoning": {
+      "$ref": "execution-settings.schema.json#/properties/reasoning"
+    },
+    "timeout_seconds": {
+      "$ref": "execution-settings.schema.json#/properties/timeout_seconds"
+    },
+    "isolation": {
+      "$ref": "execution-settings.schema.json#/properties/isolation"
+    },
+    "output_retries": {
+      "$ref": "execution-settings.schema.json#/properties/output_retries"
+    },
+    "context": {
+      "type": "string",
+      "description": "시스템이 조립한 최소 Context. 원래 호출 prompt와 분리되어 재현 가능하게 고정한다."
+    },
+    "readVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head", "branch"],
+      "description": "코드 Artifact를 검토할 때 시작 직전에도 일치해야 하는 깨끗한 HEAD와 branch. 종료까지 같은 내용이어야 한다.",
+      "properties": {
+        "head": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" },
+        "branch": { "type": "string", "minLength": 1 }
       }
     }
   }

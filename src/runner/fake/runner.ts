@@ -10,6 +10,7 @@ export class FakeRunner extends LocalRunner {
     super(root, { id: 'fake', version: '1',
       validate(request) {
         if (request.model) throw new ExecutionError('fake model is unsupported');
+        if (request.reasoning) throw new ExecutionError('fake reasoning is unsupported');
         let value: unknown;
         try { value = JSON.parse(request.prompt); } catch { throw new ExecutionError('fake prompt must be fake-worker-input JSON'); }
         if (!schemas.validator('fake-worker-input')(value)) throw new ExecutionError('fake prompt violates fake-worker-input schema');

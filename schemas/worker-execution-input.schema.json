@@ -13,7 +13,7 @@
     "prompt": {
       "type": "string",
       "minLength": 1,
-      "description": "역할에 전달할 전체 입력. fake에서는 fake-worker-input JSON 문자열이다. Context 자동 조립은 하지 않는다."
+      "description": "호출자가 제공한 지시 원문. fake에서는 fake-worker-input JSON 문자열이다. 설정 제공자가 있는 관리형 실행에서는 시스템이 최소 Context를 별도로 조립한다."
     },
     "artifacts": {
       "type": "array",
@@ -46,13 +46,30 @@
         "codex",
         "opencode"
       ],
-      "description": "호출자가 선택한 실행 백엔드. 생략은 기존 fake 입력과의 호환용이다."
+      "description": "이번 실행의 명시적 backend. 생략하면 설정 계층을 따르고, 설정이 없으면 기존 fake와 호환된다."
     },
     "model": {
+      "$ref": "execution-settings.schema.json#/properties/model",
+      "description": "이번 실행의 명시적 모델. 생략하면 설정을 상속하고 null이면 backend 기본값을 사용한다. 실제 기본 모델을 추정해 기록하지 않는다."
+    },
+    "reasoning": {
+      "$ref": "execution-settings.schema.json#/properties/reasoning"
+    },
+    "timeout_seconds": {
+      "$ref": "execution-settings.schema.json#/properties/timeout_seconds"
+    },
+    "isolation": {
+      "$ref": "execution-settings.schema.json#/properties/isolation"
+    },
+    "output_retries": {
+      "$ref": "execution-settings.schema.json#/properties/output_retries"
+    },
+    "resolved_settings": {
+      "$ref": "resolved-execution-settings.schema.json"
+    },
+    "context_packet": {
       "type": "string",
-      "minLength": 1,
-      "pattern": "^[^\\s\\x00-\\x1f][^\\x00-\\x1f]*$",
-      "description": "명시적 모델 식별자. 생략하면 CLI 기본 모델이며 실제 선택된 모델을 추정해 기록하지 않는다."
+      "description": "시스템이 제출 시 고정한 최소 Context 원문. 호출자가 직접 지정하지 않는다."
     }
   }
 }
