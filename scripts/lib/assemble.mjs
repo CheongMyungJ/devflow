@@ -17,10 +17,10 @@ function devflowHead() {
 
 /**
  * 데이터 디렉터리 하나에 대한 command 와 CommandContext 를 만든다. Store 는 프로세스당 하나(commands.md 5절).
- * @param {{ dataDir: string, actor?: string, machineConfig?: string, runnerDir?: string }} options actor 는 `human:<id>` 또는 `system`(기본)
+ * @param {{ dataDir: string, actor?: string, machineConfig?: string, runnerDir?: string, backend?: string }} options actor 는 `human:<id>` 또는 `system`(기본)
  * @returns {Promise<{ commands: typeof import('../../src/commands/index.js'), queries: typeof import('../../src/queries/index.js'), ctx: import('../../src/commands/index.js').WorkspaceCommandContext }>}
  */
-export async function assemble({ dataDir, actor = 'system', machineConfig = process.env.DEVFLOW_MACHINE_CONFIG, runnerDir }) {
+export async function assemble({ dataDir, actor = 'system', machineConfig = process.env.DEVFLOW_MACHINE_CONFIG, runnerDir, backend = 'fake' }) {
   const { dir } = prepareBuild();
   const load = (rel) => import(pathToFileURL(join(dir, rel)).href);
   const commands = await load('src/commands/index.js');
@@ -32,8 +32,10 @@ export async function assemble({ dataDir, actor = 'system', machineConfig = proc
   if (runnerDir !== undefined) {
     const rel = relative(resolve(dataDir), resolve(runnerDir));
     if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) throw new Error('runner-dir must be outside the shared data directory');
-    const { FakeRunner } = await load('src/runner/fake/runner.js');
-    ctx.runner = new FakeRunner(runnerDir);
+    const adapters = { fake: 'FakeRunner', 'claude-code': 'ClaudeCodeRunner', codex: 'CodexRunner', opencode: 'OpenCodeRunner' };
+    if (!Object.hasOwn(adapters, backend)) throw new Error('unsupported Runner backend');
+    const module = await load(`src/runner/${backend}/runner.js`);
+    ctx.runner = new module[adapters[backend]](runnerDir);
   }
   const queries = await load('src/queries/index.js');
   return { commands, queries, ctx };

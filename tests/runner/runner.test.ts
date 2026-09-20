@@ -13,6 +13,22 @@ import { tempDataDir } from '../store/helpers.js';
 import { ready, spec, terminal, until } from './helpers.js';
 
 describe('recoverable fake Worker', () => {
+  it('starts an ADR-0019 prepared request without launch.json and retains its identity', async () => {
+    const root = tempDataDir(); const workdir = join(root, 'work'); mkdirSync(workdir);
+    const runner = new FakeRunner(join(root, 'runner'));
+    const request: RunRequest = { key: { taskId: 'T-0001', runId: 'R-001', executionId: randomUUID() },
+      workspaceId: randomUUID(), workdir, role: 'worker', access: 'write', prompt: spec().prompt };
+    const dir = join(root, 'runner', 'T-0001', 'R-001', request.key.executionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'request.json'), JSON.stringify(request));
+    expect((await runner.inspect(request.key)).state).toBe('prepared');
+    await runner.submit(request);
+    expect((await until(() => runner.inspect(request.key), terminal)).state).toBe('completed');
+    const owner = readFileSync(join(dir, 'supervisor.json'), 'utf8');
+    await runner.submit(request);
+    expect(readFileSync(join(dir, 'supervisor.json'), 'utf8')).toBe(owner);
+  });
+
   it('preserves Workspace/user changes; repeated submission/collection writes one execution, artifact set and event set', async () => {
     const s = await ready();
     const workdir = s.prepared.location.workdir;

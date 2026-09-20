@@ -139,9 +139,9 @@ describe('구조 제약 — Workspace', () => {
 });
 
 describe('구조 제약 — Runner', () => {
-  it('commands/queries use the Runner interface, never its fake implementation', () => {
+  it('commands/queries use the Runner interface, never concrete backends or local execution', () => {
     const callers = [...sourceFiles(join(REPO_ROOT, 'src', 'commands')), ...sourceFiles(join(REPO_ROOT, 'src', 'queries'))];
-    expect(callers.flatMap((file) => importsOf(file).filter((spec) => /runner\/fake/.test(spec)))).toEqual([]);
+    expect(callers.flatMap((file) => importsOf(file).filter((spec) => /runner\/(fake|local|claude-code|codex|opencode)/.test(spec)))).toEqual([]);
     const source = readFileSync(join(REPO_ROOT, 'scripts', 'worker-status.mjs'), 'utf8');
     expect(source).toMatch(/queries\.getWorkerExecution\(ctx,/);
     expect(source).not.toMatch(/\.store\b|FileStore|FakeRunner|node:fs|node:child_process/);

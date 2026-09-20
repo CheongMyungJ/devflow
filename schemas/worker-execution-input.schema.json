@@ -3,18 +3,56 @@
   "$id": "devflow/worker-execution-input.schema.json",
   "title": "WorkerExecutionInput",
   "description": "호출자가 명시하는 Worker 입력. 실행마다 고정해 Run 소유 blob에 보관한다. 로컬 파일 위치는 받지 않는다.",
-  "type": "object", "additionalProperties": false, "required": ["prompt", "artifacts"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "prompt",
+    "artifacts"
+  ],
   "properties": {
-    "prompt": { "type": "string", "minLength": 1, "description": "역할에 전달할 전체 입력. fake에서는 fake-worker-input JSON 문자열이다. Context 자동 조립은 하지 않는다." },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "역할에 전달할 전체 입력. fake에서는 fake-worker-input JSON 문자열이다. Context 자동 조립은 하지 않는다."
+    },
     "artifacts": {
-      "type": "array", "description": "완료 수집 시 completeRun에 전달할 명시적 산출물 출처. 실행 시작 전에 고정한다.",
+      "type": "array",
+      "description": "제출 시 고정하는 산출물 이름과 출처 정책. workspace:code의 실제 SHA는 종료 시 확정한다.",
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["name", "source"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "source"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1, "description": "Step outputs에 선언한 이름." },
-          "source": { "type": "string", "pattern": "^(blob:work-notes|code:([0-9a-f]{40}|[0-9a-f]{64})\\.\\.([0-9a-f]{40}|[0-9a-f]{64})|repo:([0-9a-f]{40}|[0-9a-f]{64})\\.\\.([0-9a-f]{40}|[0-9a-f]{64}):.+)$", "description": "completeRun의 논리 출처. repo 경로는 저장소 상대 경로이며 로컬 절대 경로를 넣지 않는다." }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Step outputs에 선언한 이름."
+          },
+          "source": {
+            "type": "string",
+            "pattern": "^(workspace:code|blob:work-notes|code:([0-9a-f]{40}|[0-9a-f]{64})\\.\\.([0-9a-f]{40}|[0-9a-f]{64})|repo:([0-9a-f]{40}|[0-9a-f]{64})\\.\\.([0-9a-f]{40}|[0-9a-f]{64}):.+)$",
+            "description": "completeRun의 논리 출처. repo 경로는 저장소 상대 경로이며 로컬 절대 경로를 넣지 않는다. workspace:code는 종료 시 시스템이 검증한 Task branch의 clean HEAD와 Workspace 기준 SHA로 확정한다. 실제 백엔드는 고정 code:/repo: 출처를 받지 않는다."
+          }
         }
       }
+    },
+    "backend": {
+      "enum": [
+        "fake",
+        "claude-code",
+        "codex",
+        "opencode"
+      ],
+      "description": "호출자가 선택한 실행 백엔드. 생략은 기존 fake 입력과의 호환용이다."
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s\\x00-\\x1f][^\\x00-\\x1f]*$",
+      "description": "명시적 모델 식별자. 생략하면 CLI 기본 모델이며 실제 선택된 모델을 추정해 기록하지 않는다."
     }
   }
 }

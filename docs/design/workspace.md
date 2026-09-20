@@ -35,4 +35,6 @@
 
 ## 검증
 
-`tests/workspace/`는 실제 bare 원격·clone, 로컬 변경 보존, 설정 검증, 출처 선택, fetch 실패, 명령 입구, 단계 경계에서 자식 프로세스 강제 종료를 검사한다. 정상 단계 경계의 복구와 Git 작업 도중 불완전 상태의 수동 조치를 별도로 검증한다. 자동 clone·의존성 설치·네트워크 인증 준비·worktree 정리는 하지 않는다. 준비된 위치에서 fake Worker를 실행하는 경로는 별도 [Runner 계약](runner.md)과 `tests/runner/`에서 다룬다.
+`tests/workspace/`는 실제 bare 원격·clone, 로컬 변경 보존, 설정 검증, 출처 선택, fetch 실패, 명령 입구, 단계 경계에서 자식 프로세스 강제 종료를 검사한다. 정상 단계 경계의 복구와 Git 작업 도중 불완전 상태의 수동 조치를 별도로 검증한다. 자동 clone·의존성 설치·네트워크 인증 준비·worktree 정리는 하지 않는다. 준비된 위치에서 네 백엔드 Worker를 실행하는 경로는 별도 [Runner 계약](runner.md)과 `tests/runner/`에서 다룬다.
+
+`workspace:code`의 종료 검증은 같은 Git 구현 경계의 `artifact.mjs`가 담당한다. branch·clean 상태·기준 SHA ancestry·현재 HEAD를 읽기 전용으로 확인하고 결과를 supervisor에 돌려준다. Workspace 준비나 수집 시 자동 commit/reset을 하지 않는다. 종료 시 고정한 SHA는 이후 수집 시점의 HEAD와 독립적이다 (ADR-0020).
