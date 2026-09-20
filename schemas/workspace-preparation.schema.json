@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/workspace-preparation.schema.json",
+  "title": "WorkspacePreparation",
+  "description": "workspace.prepare_requested 이벤트의 불변 준비 의도. 로컬 경로 없이 Task 작업공간과 최초 시작 commit을 식별한다. 재시도는 이 기록을 그대로 사용한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workspace_id", "task_id", "repo", "base_branch", "base_source", "task_branch", "base_sha"],
+  "properties": {
+    "workspace_id": { "type": "string", "format": "uuid", "description": "준비 요청의 전역 식별자. 다른 데이터 저장소의 같은 Task ID와도 구별한다." },
+    "task_id": { "type": "string", "pattern": "^T-[0-9]{4,}$" },
+    "repo": { "type": "string", "minLength": 1, "description": "프로젝트 등록부의 이름." },
+    "base_branch": { "type": "string", "minLength": 1 },
+    "base_source": { "enum": ["remote", "local"], "description": "remote는 등록된 원격 branch를 fetch한 결과, local은 로컬 branch의 commit이다." },
+    "task_branch": { "type": "string", "minLength": 1 },
+    "base_sha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$", "description": "최초 준비 때 고정한 시작 commit. 재시도 시 branch를 다시 해석하거나 fetch하지 않는다." }
+  }
+}

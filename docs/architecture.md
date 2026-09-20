@@ -35,7 +35,7 @@
 | State Store | Task/Step/Decision/Feedback/GateResult/Run/Artifact 와 이벤트, blob 저장. Task 안의 ID 발급, 불변 기록의 덮어쓰기 방지, commit 식별자. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` (아래 2.1) | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
 | Orchestrator | 멱등 `advance(task_id)` | 사람이 `task run` 으로 호출 | 이벤트가 호출 |
 | Role Runner | `submit / result / stream / sendMessage / cancel` + 백엔드 어댑터 | 로컬 subprocess (`claude-code`, `codex`, 테스트용 `fake`) | job queue + 컨테이너 |
-| Workspace | Task 별 branch/worktree | 로컬 git | 서버 clone, remote 경유 |
+| Workspace | Task 별 branch/worktree 준비·조회·중단 후 대조 | `src/workspace/types.ts` 뒤의 로컬 Git 구현, `prepare-workspace`·`workspace-status` | 서버 clone, remote 경유 |
 
 ### 2.1 State Store 와 스키마 로더
 
@@ -50,11 +50,20 @@
 
 ### 2.2 commands 와 0단계의 입구
 
-- **command**(`src/commands/`, 목록은 `index.ts`): Task 발행 `createTask`·done `completeTask`, Step 한 바퀴 `submitRun`·`completeRun`·`failRun`·`recordGate`·`recordDecision`·`defineStep`·`requestRevision`·`approveStep`·`addFeedback`, 짝이 되는 엔티티가 없는 이벤트 `appendEvents`. 첫 인자는 `CommandContext`(Store, 시계, actor, system_sha). 한 command 는 한 commit 이고, 시각(초 단위 UTC — `time.ts` 의 `recordedAt`)·ID·status·commit_id 는 도구가 채운다. 거부는 모두 아무것도 쓰기 전이다(`RejectedInputError`). `createTask` 밖의 command 는 `common.ts` 의 `commitAfterReading`(읽고 판단한 뒤 `expectedLastSeq` 로 commit, 충돌이면 다시 읽고 판단, 결과를 알 수 없으면 commit 식별자로 확인)을 쓴다. 입력·쓰는 것·거부 조건은 `docs/design/commands.md` 6절(ADR-0017).
+- **기록 command**(`src/commands/`, 목록은 `index.ts`): Task 발행 `createTask`·done `completeTask`, Step 한 바퀴 `submitRun`·`completeRun`·`failRun`·`recordGate`·`recordDecision`·`defineStep`·`requestRevision`·`approveStep`·`addFeedback`, 짝이 되는 엔티티가 없는 이벤트 `appendEvents`. 첫 인자는 `CommandContext`(Store, 시계, actor, system_sha, 선택적 기본 branch resolver). 기록 command 하나는 한 commit이고 시각·ID·status·commit_id는 도구가 채운다. `createTask`는 원격 기본 branch 조회 후 한 commit으로 발행한다. Step 기록 command는 `common.ts`의 `commitAfterReading`으로 충돌 시 다시 읽고 판단한다. `appendEvents`는 같은 원칙의 자체 루프를 쓴다. 별도 **실행 command `prepareWorkspace`는 두 commit 사이에 Git 작업이 있는 예외**다(아래 2.3, ADR-0018). 입력·거부 조건은 `docs/design/commands.md`.
 - **Step status 의 전이표**는 `src/commands/transitions.ts` 한 곳에 있고 status 를 바꾸는 command 는 모두 그것으로 판단한다(표는 `docs/design/commands.md` 7절). **이벤트의 ref** 는 `src/store/refs.ts` 의 `isEventRef` 가 받는 모양만 기록된다.
 - **입구**(`scripts/*.mjs` — `issue-task`, `submit-run`, `propose-step`, `define-step`, `complete-run`, `fail-run`, `record-gate`, `request-revision`, `approve-step`, `add-feedback`, `complete-task`, `append-events`)는 인자와 입력 파일을 읽어 command 하나를 부른다. command 와 Context 는 **조립 지점** `scripts/lib/assemble.mjs` 가 만든다 — scripts/ 에서 Store 의 파일 구현체를 여는 곳은 여기(와 검증용 check-store-read)뿐이다. 입구는 그것과 인자 해석·파일 읽기·보고의 공용 모듈 `scripts/lib/cli.mjs`, `node:` 모듈만 import 한다(`tests/architecture.test.ts`). 조립 지점은 `src/` 를 `tsc --noCheck` 로 빌드해 쓰고, 소스의 내용 해시가 같으면 빌드를 다시 쓴다(`scripts/lib/build.mjs`, `docs/design/commands.md` 6.5).
 - 역할 세션의 출력(worker-output, reviewer-output, Planner 의 Decision, deterministic 결과)과 사람이 쓴 정의(Task, 고친 Step)는 데이터 디렉터리 밖의 파일로 받아 command 가 blob·엔티티로 쓴다. 입구가 받은 로컬 경로는 기록되지 않는다. 사람이 한 일의 입구는 `--actor human:<id>` 를 요구하고, 승인은 사람이 본 Gate(`--gate G-NNN`)의 버전만 승인한다.
 - Ledger(`ledger.md`)는 command 가 쓰지 않는다 — 편집 도구로 쓰고 그 사실을 `ledger.updated` 로 `append-events` 가 남긴다.
+
+### 2.3 Workspace 준비 (구현됨)
+
+- 공개 경로는 `commands.prepareWorkspace(ctx, { taskId })`, `queries.getWorkspace(ctx, taskId)`다. 확장 Context가 Store와 `Workspace` 인터페이스를 받는다. `src/workspace/git/`만 Git 명령·로컬 경로·머신 관리 기록을 안다. 조립 지점이 `GitWorkspace`와 `FileProjectCatalog`를 만든다. Runner 연결과 `advance`는 아직 없다.
+- 발행 입력에 branch가 없으면 등록 원격의 HEAD를 조회한다. 이름만 지정하면 remote, local은 이름 필수다. 최초 준비는 remote branch를 fetch하거나 local branch를 읽어 SHA를 고정한다. 실패 시 다른 출처로 대체하지 않는다. 옛 Task의 출처는 추정하지 않는다.
+- 준비는 `workspace.prepare_requested` commit → Git 생성/대조 → `workspace.prepared` commit이다. 두 commit은 원자적이지 않다. 재호출은 고정 SHA와 로컬 소유 기록·Git 상태·생성 완료 표식을 대조한다. 정상 작업공간이 있으면 변경을 보존하고 빠진 완료 기록만 보충한다. 완료된 작업공간이 없어졌거나 소유/branch/저장소가 다르면 중단한다.
+- Git common directory의 `devflow-workspaces/`는 머신별 소유 기록과 완료 표식·잠금을 보관한다. 공유 State Store 밖의 실행 구현이며 Task 이벤트에는 위치를 기록하지 않는다. 원격 fetch는 고유 `refs/devflow/fetch/`에 받아 최초 SHA를 보존한다. 자동 정리는 이번 범위 밖이다.
+- 겹친 Git 준비는 기다리지 않고 거부한다. Git 생성 도중 강제 종료로 잠금이나 부분 checkout이 남으면 수동 확인을 요구한다. 자동 잠금 회수·삭제·reset은 없다. 의도 기록 뒤 또는 정상 Git 완료 뒤의 중단은 같은 명령으로 복구한다.
+- 운영 입구는 `prepare-workspace`와 `workspace-status`. 머신 설정은 `--machine-config` 또는 `DEVFLOW_MACHINE_CONFIG`, 프로젝트 등록부는 데이터 루트의 `projects.yaml`이다. 포맷은 `schemas/project-registry.schema.json`, `schemas/workspace-machine-config.schema.json`이 기준이다. 사용 예는 `docs/stage0-manual-operation.md`.
 
 ## 3. 엔티티
 
@@ -161,7 +170,7 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 
 - 상태는 Task 단위로 분리되어 있고 `advance(task_id)` 는 Task 별로 멱등이다. 여러 Task 를 동시에 진행할 수 있다.
 - **Task 하나 = repo 하나 = worktree 하나.** Worker 와 Gate 는 그 Task 의 worktree 안에서만 실행한다. worktree 경로는 Workspace 관리자가 실행 시점에 풀어 주며 기록하지 않는다. 여러 repo 에 걸친 작업은 Task 를 나눠 발행한다.
-- 프로젝트 이름 → remote URL·기본 branch 는 `devflow-data/projects.yaml` 에, 로컬 clone 위치는 머신별 설정에 둔다.
+- 프로젝트 이름 → remote URL은 `devflow-data/projects.yaml`에, 로컬 clone·worktree 루트·remote 이름은 머신별 설정에 둔다. 등록부의 옛 기본 branch 값은 호환용으로 읽지만 새 Task의 기본값은 원격 HEAD에서 조회한다(ADR-0018).
 - Step 의 `inputs` 는 `code://<project>@<sha>` 로 대상 repo 가 아닌 등록된 프로젝트도 가리킬 수 있다. 그 참조는 읽기 전용이고, 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이다. 참조 문법은 `schemas/step.schema.json` 이 강제한다.
 - 대상 repo 의 `.devflow.yaml`(`schemas/project-config.schema.json`)이 검증 명령을 정의한다. `exclusive: true` 인 프로젝트는 Gate 를 직렬로 실행한다.
 - Store 파일 구현체는 같은 Task 에 대한 commit 을 Task 별 lock 으로 직렬화한다. Task ID 는 lock 없이 `mkdir` 의 원자성으로 발급하고(ADR-0011), Task 안의 ID 는 그 Task 의 lock 안에서 발급하므로 동시 commit 에서도 겹치지 않는다(ADR-0015). `devflow-data` 의 git 자동 commit 은 직렬화해야 한다(미구현).

@@ -44,7 +44,34 @@ T-0006 자체의 기록은 예외로 끝까지 기준 SHA `18fb89e`의 옛 스�
 
 확인 뒤 AC·scope_hint와 AC별 covers를 쓰고 의도에서 빠진 성공 기준이나 번역 중 생긴 요구가 없는지 되짚는다. 사람이 답할 질문이 남으면 발행하지 않는다. 범위 밖이나 역할에 맡긴 질문을 constraints에 끼워 넣지 않는다. 데이터 밖 정의 파일에는 `id`, `status`, `created_at`, `created_by`, `target.task_branch`를 넣지 않는다.
 
-`npm run issue-task -- <data-dir> <definition.yaml> --slug <slug> --actor human:<id>`로 발행한다. 필요하면 출처·경위를 `--backlog`, `--intake`, `--note`로 준다. 반환된 ID·branch로 worktree를 준비하고 의존성 설치 뒤 초기 typecheck·test를 확인한다. Intake에서 고친 것·되물은 것·왕복 경과를 Ledger 운영 메모에 남긴다.
+`npm run issue-task -- <data-dir> <definition.yaml> --slug <slug> --actor human:<id>`로 발행한다. 필요하면 출처·경위를 `--backlog`, `--intake`, `--note`로 준다. `target.base_branch`를 생략하면 등록된 원격의 기본 branch를 조회한다. 이름만 주면 원격 기준이고 로컬 branch를 쓰려면 `target.base_source: local`을 함께 준다. 반환된 ID로 아래 명령을 사용해 worktree를 준비하고, 의존성 설치 뒤 초기 typecheck·test를 확인한다. Intake에서 고친 것·되물은 것·왕복 경과를 Ledger 운영 메모에 남긴다.
+
+Workspace 실행 설정은 데이터 repo 밖의 머신 파일로 둔다. 스키마가 정의하는 설정의 예:
+
+```yaml
+# <data-dir>/projects.yaml (공유)
+projects:
+  example:
+    repo: https://example.com/team/example.git
+```
+
+```yaml
+# 머신의 workspace.yaml (공유 데이터 밖, 경로는 이 파일 기준)
+projects:
+  example:
+    clone: ./repos/example
+    worktree_root: ./worktrees/example
+    remote: origin
+```
+
+```sh
+npm run prepare-workspace -- <data-dir> <task-id> --machine-config <workspace.yaml>
+npm run workspace-status -- <data-dir> <task-id> --machine-config <workspace.yaml>
+```
+
+`DEVFLOW_MACHINE_CONFIG` 환경 변수로 머신 파일을 지정해도 된다. remote 기준의 최초 준비는 반드시 fetch하며, 최신은 그때 관찰한 commit이다. 재호출은 기록한 SHA와 작업공간을 재사용한다. 조회는 `unprepared` / `pending` / `pending_record` / `ready` / `blocked`를 표시한다. `pending_record`는 정상 작업공간은 있고 완료 이벤트만 없는 경우다. `pending`과 `pending_record`는 같은 준비 명령으로 이어간다. 실제 실행 경로는 명령 결과에만 표시되며 상태 기록에 넣지 않는다.
+
+오류가 "준비 기록 또는 Git 작업이 남아 있을 수 있다"고 말하면 작업공간을 지우고 다시 시작하지 않는다. 겹친 실행은 기다리지 않고 멈춘다. 잠금이 남았으면 안내된 파일을 지우기 전에 관련 devflow/Git 프로세스가 모두 종료됐는지 확인해야 한다. 잠금 자동 회수는 없다. 부분 checkout·손상된 소유 기록·다른 branch로 바뀐 작업공간은 수동 확인 대상이다. `base_source`가 없는 옛 Task는 출처를 추정하지 않으므로 자동 준비하지 않는다.
 
 ## 한 Step의 절차
 

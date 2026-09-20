@@ -42,6 +42,8 @@ const WRITTEN_BY_COMMANDS: Readonly<Record<string, string>> = {
   'artifact.approved': 'approveStep',
   'feedback.added': 'addFeedback·requestRevision·approveStep',
   'gate.completed': 'recordGate',
+  'workspace.prepare_requested': 'prepareWorkspace',
+  'workspace.prepared': 'prepareWorkspace',
 };
 
 /** 입력의 이벤트 하나. 나머지(actor, at, system_sha, seq, task_id, commit_id)는 도구가 채운다. */

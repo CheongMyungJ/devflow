@@ -1,6 +1,7 @@
 // 0단계 운영의 입구: Task 발행 — commands.createTask (docs/design/commands.md 6.1·6.2·6.3).
 // 사용: npm run issue-task -- <data-dir> <definition.yaml> [--slug <text>] [--backlog <text>] [--intake <text>] [--note <text>] --actor human:<id>
 //   <definition.yaml>: 사람이 쓴 Task 정의(YAML). id·status·created_at·created_by·target.task_branch 는 도구가 채우므로 두지 않는다 — 있으면 거부.
+//   target.base_branch 생략: projects.yaml의 원격 HEAD 조회. base_source 생략: remote. local은 branch 이름도 필수.
 //   사람이 답할 질문이 남은 정의(open_questions[].answered_by 가 planner_or_worker·investigation_step 밖)는 Task 스키마가 거부하고 위치를 보인다.
 //   --slug: task branch 이름 task/<id>-<slug> 의 뒷부분. --backlog·--intake·--note: task.created 의 data(발행의 출처, Intake 의 방식, 경위).
 // 한 commit: task.yaml(open, created_at 은 초 단위 UTC, created_by 는 사람의 id), task.created(actor human:<id>). 정의 파일의 경로는 기록하지 않는다.

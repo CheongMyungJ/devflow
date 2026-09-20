@@ -62,7 +62,7 @@ describe('issue-task 입구 (commands.createTask)', () => {
     expect(task).toEqual({
       ...definition(),
       id: 'T-0001',
-      target: { ...definition()['target'], task_branch: 'task/T-0001-example-slug' },
+      target: { ...definition()['target'], base_source: 'remote', task_branch: 'task/T-0001-example-slug' },
       status: 'open',
       created_at: expect.stringMatching(SECONDS_UTC),
       created_by: 'tester',

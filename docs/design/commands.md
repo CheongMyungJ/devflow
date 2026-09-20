@@ -3,6 +3,7 @@
 - 코드: `src/commands/`, `src/queries/`
 - Store 의 계약은 `docs/design/store.md` 1절과 `src/store/types.ts` 가 기준이다. 이 문서는 그 계약을 **쓰는 쪽**이 지킬 것을 정한다.
 - commands/queries 는 사람과 외부가 시스템에 접근하는 유일한 경로다(AGENTS.md 1번). CLI, 서버, Orchestrator 는 이 함수들만 부른다.
+- 이 문서의 한 commit·변경 없음 오류 규약은 **기록 command**의 것이다. Git을 실행하는 `prepareWorkspace`는 ADR-0018에 따른 다단계 예외이며 8절을 따른다.
 
 ## 1. 의존하는 것과 받는 방식
 
@@ -14,14 +15,15 @@ commands 는 첫 인자로 `CommandContext` 를 받는다. 전역 상태나 실�
 | `clock` | `{ now(): Date }` | Store 는 시계를 읽지 않는다. 이벤트의 `at` 과 `created_at` 은 호출자가 정한다. 주입해야 테스트가 결정적이다 |
 | `actor` | `human:<id>` \| `system` \| `role:<역할>` | 누가 한 일인지는 호출 경로(CLI 의 사용자, Orchestrator, 역할 세션)가 안다 |
 | `systemSha` | 실행 중인 devflow 의 commit SHA (선택) | 이벤트에 남겨 어떤 버전의 프롬프트·스키마로 실행되었는지 추적한다(ADR-0007) |
+| `baseBranches` | `BaseBranchResolver` (선택) | Task 입력에 branch가 없을 때 원격 기본 branch 조회. 이름을 지정한 발행에는 필요 없다 |
 
-queries 는 `QueryContext`(`store` 만)를 받는다. 읽기에는 시계와 행위자가 필요 없다.
+Task queries는 `QueryContext`(`store`만)를 받는다. Workspace 준비는 이를 확장한 `WorkspaceCommandContext`(`workspace` 포함), Workspace 조회는 `store`와 `workspace`를 받는다. 읽기에는 시계와 행위자가 필요 없다.
 
 Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0단계 운영 스크립트의 조립 모듈 `scripts/lib/assemble.mjs` — 6.5)에서 만들어 아래로 넘긴다.
 
 ## 2. Store 오류의 처리
 
-원칙: **commands/queries 는 Store 의 오류를 다른 오류로 바꾸지 않고 그대로 올린다.** 사용자에게 보일 문구로 만드는 것은 가장 바깥 계층(CLI, API)의 일이다. 중간에서 바꾸면 Store 가 담아 둔 안내(`StoreBusyError.detail`)나 원인(`cause`)이 사라진다.
+원칙: **기록 commands/queries는 Store의 오류를 다른 오류로 바꾸지 않고 그대로 올린다.** 사용자에게 보일 문구로 만드는 것은 가장 바깥 계층(CLI, API)의 일이다. 다단계 `prepareWorkspace`는 8절의 오류로 감싸되 원래 오류를 cause로 보존한다.
 
 | 오류 | 뜻 | command 가 할 일 | 바깥 계층이 사용자에게 알릴 것 |
 |---|---|---|---|
@@ -98,7 +100,7 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0�
 - **데이터 디렉터리의 모든 기록은 command 가 Store 의 commit 으로 쓴다.** 입구도 역할 세션도 데이터 디렉터리에 직접 쓰지 않는다(옮겨 가는 동안의 예외와 선택지는 6.4). Ledger(`ledger.md`)만 예외다 — Store 가 다루지 않고 command 도 쓰지 않는다(T-0006 의 non_goals). Ledger 를 고친 사실은 `ledger.updated` 로 `append-events` 가 남긴다.
 - **도구가 채우는 것**: 모든 시각(이벤트의 `at`, 엔티티의 `created_at`·`submitted_at`·`ended_at` — 한 command 안에서는 `ctx.clock` 을 한 번 읽은 같은 값이고, **초 단위 UTC**(`2026-09-19T11:51:35Z` — 밀리초를 버린다. 옛 기록과 같은 모양, T-0006 F-001 (3)). 만드는 곳은 `src/commands/time.ts` 의 `recordedAt(clock)` 하나이고 `createTask` 를 포함한 모든 command 가 그것을 쓴다), Task 안의 ID(`nextId`·`nextArtifactVersion`), 엔티티의 `status`, 이벤트의 `system_sha`(조립 지점이 devflow repo 의 HEAD 로 채운다), `commit_id`(Store), 이벤트의 `actor`(아래). **시각은 어느 입구도 인자로 받지 않는다.** 입력에 시각이 있으면(예: append-events 의 `at`) 거부한다.
 - **Step 의 status 를 바꾸는 command 는 step.yaml 의 `status` 와 `step.status_changed` 를 같은 commit 에 쓴다.** 한 commit 에 전이가 둘이면(승인의 in_review→approved→closed) step.yaml 에는 마지막 `to` 를 쓰고 `step.status_changed` 는 걸음마다 하나씩 쓴다. status 를 바꾸지 않는 command 는 `step.status_changed` 를 쓰지 않는다. Step 이 처음 생길 때(`recordDecision` 의 proposed)는 `step.status_changed` 를 쓰지 않고 step.yaml 과 `step.proposed` 를 같은 commit 에 쓴다 — 기존 기록에도 proposed 로의 `step.status_changed` 가 없고, `from` 이 없는 전이를 새로 만들지 않는다(T-0006 step-004, D-004). 그래서 어느 command 뒤에도 **"step.yaml 의 status = 그 Step 의 status 를 정한 마지막 이벤트"** — `step.status_changed` 가 있으면 그 마지막 것의 `to`, 없으면 `step.proposed` 의 proposed — 다(T-0006 AC3 의 "마지막 step.status_changed 의 to" 를 이렇게 읽는다. `tests/step-round-flow.test.ts` 와 Task 발행부터 done 까지의 `tests/task-flow.test.ts` 가 명령마다 이것을 검사한다).
-- **읽고 판단한 뒤 쓴다** — `createTask` 밖의 모든 command 는 4절의 패턴(`expectedLastSeq` 로 commit, `ConflictError` 면 다시 읽고 다시 판단)을 쓴다. 새 ID 는 `ChangeInput` 의 함수 안에서 `nextId` 로 받는다.
+- **읽고 판단한 뒤 쓴다** — 이 절의 기록 command 중 `createTask` 밖의 command는 4절의 패턴(`expectedLastSeq`로 commit, `ConflictError`면 다시 읽고 다시 판단)을 쓴다. 새 ID는 `ChangeInput`의 함수 안에서 `nextId`로 받는다. Workspace 실행 command는 8절의 규약을 따른다.
 - **아무것도 쓰기 전에 거부한다** — 거부 조건(6.3, 7절)은 모두 commit 전에 검사한다. Store 가 막는 것(불변 kind 와 blob 의 덮어쓰기, ID 모양, 스키마)은 Store 의 오류가 그대로 올라온다(2절). 어느 쪽이든 "아무것도 기록되지 않았다" 이다.
 - 이벤트의 `actor`: 사람이 한 일(Task 발행·done, Step 확정, 수정 요청, 승인, Feedback)은 `ctx.actor`(입구가 받은 `human:<id>` — 없으면 거부), 시스템의 일(Run 제출, status 의 자동 전이)은 `system`, 역할 세션의 결과를 받아들이는 일(Run 완료, Artifact, Gate, Decision)은 `role:<역할>`. 지금까지의 기록과 같은 규칙이다.
 
@@ -139,6 +141,7 @@ Context 는 **조립 지점 한 곳**(CLI 의 main, 서버의 시작 코드, 0�
 **`createTask(ctx, input)`** — **구현됨**(`src/commands/create-task.ts`, 시그니처는 T-0001 그대로 — 선택 입력만 더했다). 입구 `issue-task <data-dir> <definition.yaml> [--slug <text>] [--backlog <text>] [--intake <text>] [--note <text>] --actor human:<id>`(앞 인자는 `<data-dir>` 만 — Task id 는 발급된다).
 - 입력: 사람이 쓴 Task 정의 파일(YAML — 입구가 읽어 값으로 넘긴다). `id`·`status`·`created_at`·`created_by`·`target.task_branch` 가 **있으면 거부**한다(도구가 채운다 — `RejectedInputError`). 정의 파일에 입구 옵션의 자리(`branchSlug`, `createdData`)가 있어도 입구가 거부한다. 사람이 답할 질문이 남은 정의(`open_questions[].answered_by` 가 두 값 밖)는 Task 스키마가 쓰기 전에 거부하고(`SchemaViolationError`) 입구가 오류의 위치(`/open_questions/<i>/answered_by`)를 보인다.
 - 선택 입력 `branchSlug`(입구의 `--slug`), `createdData`(`{ backlog?, intake?, note? }` — `task.created` 의 `data`, 지금까지의 기록에 있던 자리. 입구의 `--backlog`·`--intake`·`--note`). `CreateTaskInput` 에 선택 필드를 더한 것이라 시그니처는 깨지지 않는다.
+- `target.base_branch`는 발행 입력에서는 선택이다. 생략하면 `baseBranches.defaultBranch(repo)`가 등록 원격 HEAD를 조회하며 실패하면 발행하지 않는다. `base_source` 생략은 remote, local이면 branch 이름이 필수다. branch 이름/출처를 새 Task에 항상 기록한다. 저장 스키마는 branch 이름을 계속 요구하고, 출처 필드 없는 옛 기록은 읽기 호환만 유지한다. 시작 SHA를 fetch해 고정하는 시점은 Workspace 최초 준비다(ADR-0018).
 - 도구가 채우는 것: id(Store 발급), status open, created_at(`recordedAt` — 초 단위 UTC), **created_by = 사람의 id**(`ctx.actor` 에서 `human:` 을 뗀 것 — 옛 기록의 `created_by: CheongMyungJ` 와 같은 모양, T-0006 F-001 (3)), task_branch(`task/<id>-<slug>`), 이벤트 `task.created` 의 actor(`ctx.actor` 그대로 `human:<id>`)·at(created_at 과 같은 값)·system_sha·commit_id.
 - 사람만 발행한다 — `ctx.actor` 가 `human:<id>` 가 아니면 거부. 읽고 판단할 것이 없어 4절의 패턴을 쓰지 않는다(Task id 는 Store 가 lock 없이 발급한다 — ADR-0011).
 - 빈 데이터 디렉터리에서 Store 가 거부한 발행(스키마 위반)은 기록을 남기지 않지만 Store 의 내부 디렉터리 `.locks/`(빈 것)가 생길 수 있다 — 기록이 아니고 데이터 repo 의 `.gitignore` 가 가린다(T-0006 step-005 작업 노트).
@@ -287,3 +290,16 @@ step 스키마의 status: `proposed`, `defined`, `running`, `checking`, `in_revi
 
 - closed·cancelled 는 끝이다. 거기서 나가는 전이는 없다. approved 는 `approveStep` 의 한 commit 안에서만 지나간다(0단계의 기록과 같다 — 승인과 닫기가 같은 시각이었다).
 - 기존 기록(T-0001~T-0005, T-0006 의 step-001)의 `step.status_changed` 에 나오는 전이 아홉 가지 — proposed→defined, defined→running, running→checking, checking→in_review, checking→revising, in_review→revising, revising→checking, in_review→approved, approved→closed — 는 모두 이 표에 있다. 이 표는 새 command 가 할 전이의 규칙이고 옛 기록을 검사하지 않는다(T-0001 의 Step 은 proposed·defined 를 거치지 않고 running 에서 시작한다).
+
+## 8. Workspace 실행 command와 조회 (ADR-0018)
+
+`prepareWorkspace(ctx, { taskId })`는 **의도 기록 → Git 작업 → 완료 기록**의 다단계 command다. 기존 기록 command와 달리 호출 전체가 한 commit이 아니며 실패가 변경 없음을 뜻하지 않는다. `WorkspaceCommandContext`로 Store와 Workspace를 주입하고, CLI는 `prepare-workspace <data-dir> <task-id> [--machine-config <file>]`다.
+
+- 최초 요청은 기준 SHA를 해석한 뒤 `workspace.prepare_requested`를 CAS로 기록한다. 이미 요청이 있으면 재사용하며 다시 fetch하지 않는다. Git 성공 뒤 `workspace.prepared`를 별도 CAS로 기록한다. 완료 기록이 이미 있으면 검사만 하고 이벤트를 추가하지 않는다.
+- 요청/완료 기록은 prepareWorkspace만 쓴다. appendEvents는 받지 않는다. Task/Step status는 바꾸지 않는다. 새 기록 필드의 정의는 `schemas/workspace-preparation.schema.json`과 event 스키마가 기준이다.
+- CAS 충돌은 자동 재시도하지 않는다. 결과가 불명확한 각 Store commit은 3절 규약으로 확인한다.
+- `WorkspacePreparationError`는 원래 오류를 cause로 보존한다. `before_start`는 준비 의도 commit 전 실패이며 fetch의 로컬 객체/ref는 남을 수 있다. `interrupted`는 준비 기록이나 Git 결과가 남아 있을 수 있으므로 CLI가 "아무것도 기록하지 않았다"고 보고하면 안 된다. 기존 요청이 있는 재호출의 오류도 이 범주다. 내부 Workspace 오류는 configuration/conflict/busy/git/manual을 구별한다.
+- `getWorkspace({ store, workspace }, taskId)`는 변경 없이 기록과 실제 작업공간을 대조한다. unprepared, pending, pending_record, ready, blocked를 반환한다. blocked의 이유와 실행 경로는 화면에만 보여 주며 공유 상태에 기록하지 않는다. 입구는 `workspace-status`다.
+- 조립 지점은 `FileProjectCatalog`와 `GitWorkspace`도 생성한다. 머신 파일은 `--machine-config` 또는 `DEVFLOW_MACHINE_CONFIG`, 프로젝트 등록부는 데이터 루트의 `projects.yaml`이다. 설정 읽기는 어댑터가 하고 입구/commands는 파일 형식을 모른다.
+
+Git 경계와 복구 처리의 상세는 `docs/design/workspace.md`, 운영 예는 `docs/stage0-manual-operation.md`를 참조한다. 잠금 자동 회수·작업공간 삭제·reset은 하지 않는다.

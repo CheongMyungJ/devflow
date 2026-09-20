@@ -93,7 +93,8 @@
       "required": ["repo", "base_branch", "task_branch"],
       "properties": {
         "repo": { "type": "string", "description": "devflow-data/projects.yaml 에 등록된 프로젝트 이름." },
-        "base_branch": { "type": "string" },
+        "base_branch": { "type": "string", "minLength": 1, "description": "발행 때 확정한 branch 이름. 입력 생략 시 원격 HEAD에서 조회한다. 시작 SHA는 최초 Workspace 준비 때 고정한다." },
+        "base_source": { "enum": ["remote", "local"], "description": "기준 branch의 출처. 새 Task는 생략 시 remote로 기록한다. 필드 없는 옛 기록은 출처 미확정이며 자동 Workspace 준비를 거부한다." },
         "task_branch": { "type": "string" },
         "scope_hint": { "type": "array", "items": { "type": "string" }, "description": "관련 디렉터리/모듈 힌트 (repo 상대 경로)." }
       }

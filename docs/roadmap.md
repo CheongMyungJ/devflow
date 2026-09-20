@@ -36,7 +36,8 @@
 - [ ] Orchestrator: 멱등 `advance()`, 재작업·Step 수 상한
 - [ ] Gate: `.devflow.yaml` 의 명령 실행 + AI 리뷰 1회
 - [ ] CLI: `task new / run / status / review / answer / attach / log`
-- [ ] Workspace 관리자: Task 별 worktree 생성·정리, 프로젝트 등록부, base branch 이동 감지
+- [x] Workspace 최소 기능: Task별 worktree 준비·조회, 원격/로컬 기준 선택, SHA 고정, 정상 단계 경계의 중단 후 복구 (ADR-0018)
+- [ ] Workspace 후속: 자동 정리, base branch 이동을 Planner에 전달, Runner 연결. Git 생성 도중의 불완전 상태는 현재 수동 확인
 - [ ] `task status`: Task 전체에 걸친 "내 입력 대기" 목록
 - [ ] `devflow-data` 의 git commit 직렬화, `exclusive` 프로젝트의 Gate 직렬화 (Task ID 발급은 lock 없이 `mkdir` 로, Task 별 Store commit 의 직렬화는 T-0001 에서 구현 — ADR-0011)
 - [ ] Task Ledger 갱신

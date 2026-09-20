@@ -11,3 +11,5 @@ export { type ArtifactSource, completeRun, type CompleteRunInput, failRun, type 
 export { defineStep, type DefineStepInput, recordDecision, type RecordDecisionInput } from './plan.js';
 export { ADDABLE_FEEDBACK_KINDS, addFeedback, type AddFeedbackInput, approveStep, type ApproveStepInput, requestRevision, type RequestRevisionInput } from './review.js';
 export { completeTask, type CompleteTaskInput } from './complete-task.js';
+export { prepareWorkspace, type WorkspaceCommandContext, type PreparedWorkspace } from './workspace.js';
+export { WorkspacePreparationError } from '../workspace/errors.js';

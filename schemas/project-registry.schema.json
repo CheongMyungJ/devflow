@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/project-registry.schema.json",
+  "title": "ProjectRegistry",
+  "description": "공유 프로젝트 등록부(projects.yaml). 로컬 clone 위치는 머신 설정에 둔다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projects"],
+  "properties": {
+    "projects": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["repo"],
+        "properties": {
+          "repo": { "type": "string", "minLength": 1, "description": "원격 저장소 URL. 로컬 경로와 file URL은 운영 설정에서 거부한다." },
+          "base_branch": { "type": "string", "description": "기존 등록부 호환용. 새 Task의 기본 branch는 이 값 대신 원격 HEAD를 조회한다." }
+        }
+      }
+    }
+  }
+}
