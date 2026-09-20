@@ -8,6 +8,7 @@ import { checkArtifactRef, checkKeys, commitAfterReading, humanId, openTask, rej
 import type { CommandContext } from './context.js';
 import { RejectedInputError } from './errors.js';
 import { recordedAt } from './time.js';
+import { requireUnmanaged } from './workflow-guard.js';
 import { nextStepStatus, statusChangedEvents } from './transitions.js';
 
 async function stepOf(ctx: CommandContext, taskId: string, stepId: string): Promise<Step> {
@@ -39,7 +40,7 @@ export async function requestRevision(ctx: CommandContext, input: RequestRevisio
   const at = recordedAt(ctx.clock);
   let feedback!: Feedback;
   const result = await commitAfterReading(ctx, taskId, async () => {
-    await openTask(ctx, taskId);
+    requireUnmanaged(await openTask(ctx, taskId));
     const step = await stepOf(ctx, taskId, stepId);
     const next = nextStepStatus('requestRevision', step.status, stepId);
     const reasons: string[] = [];
@@ -92,7 +93,7 @@ export async function approveStep(ctx: CommandContext, input: ApproveStepInput):
   let approved: string[] = [];
 
   const result = await commitAfterReading(ctx, taskId, async () => {
-    await openTask(ctx, taskId);
+    requireUnmanaged(await openTask(ctx, taskId));
     const step = await stepOf(ctx, taskId, stepId);
     const approvedStatus = nextStepStatus('approveStep', step.status, stepId);
     const closed = nextStepStatus('approveStep', approvedStatus, stepId);

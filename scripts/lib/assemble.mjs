@@ -45,6 +45,8 @@ export async function assemble({ dataDir, actor = 'system', machineConfig = proc
       return cache.get(name);
     } };
     ctx.runner = ctx.runners.get(backend ?? 'fake');
+    const { LocalVerifier } = await load('src/verification/local/verifier.js');
+    ctx.verifier = new LocalVerifier(runnerDir, ctx.settings);
   }
   const queries = await load('src/queries/index.js');
   return { commands, queries, ctx };

@@ -47,7 +47,7 @@ export function loadSchemas(schemaDir = findSchemaDir()) {
   }
   return {
     schemaDir,
-    names: [...ids.keys()],
+    names: [...ids.keys()].sort(),
     validator(name) {
       const id = ids.get(name);
       if (!id) throw new Error(`unknown schema: ${name}`);

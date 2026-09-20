@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/workflow.schema.json",
+  "title": "Workflow",
+  "description": "Orchestrator가 소유하는 Task의 진행 커서. 사건과 같은 commit에 갱신한다. 로컬 위치나 질문 CLI 수명은 저장하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config", "phase", "artifact_refs"],
+  "properties": {
+    "config": { "$ref": "workflow-input.schema.json" },
+    "phase": { "enum": ["planner", "worker", "verification", "reviewer", "hitl", "artifact_approval", "paused", "ready_to_complete"], "description": "실행할 역할/검증 또는 사람을 기다리는 위치. ready_to_complete도 merge나 Task done을 자동 수행하지 않는다." },
+    "step_id": { "type": "string", "pattern": "^step-[0-9]{3,}$" },
+    "artifact_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/artifactRef" }, "description": "이번 Worker 결과의 정확한 버전 집합. 재작업 결과에서만 바뀐다." },
+    "decision_id": { "type": "string", "pattern": "^D-[0-9]{3,}$" },
+    "gate_id": { "type": "string", "pattern": "^G-[0-9]{3,}$", "description": "마지막 검증 기록. 재검토는 같은 Artifact를 대상으로 새 Gate를 만든다." },
+    "verification": { "$ref": "verification-result.schema.json", "description": "현재 버전에 실제 실행한 deterministic 결과. 재작업 시작 시 제거한다." },
+    "action": {
+      "title": "WorkflowAction", "type": "object", "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid", "description": "외부 실행 전 영속적으로 예약한 식별자. 중단돼도 새 실행으로 대체하지 않는다." },
+        "kind": { "enum": ["planner", "worker", "reviewer", "verification"] },
+        "run_id": { "type": "string", "pattern": "^R-[0-9]{3,}$", "description": "역할 실행에 예약한 다음 Run ID. 검증은 AI Run으로 가장하지 않는다." }
+      }
+    },
+    "pending": { "$ref": "hitl-target.schema.json" },
+    "revision": { "$ref": "#/$defs/revision" },
+    "reason": { "type": "string", "description": "일시 정지 사유. 종료 불명확 실행은 자동으로 재시작하지 않는다." }
+  },
+  "allOf": [
+    { "if": { "properties": { "phase": { "enum": ["hitl", "artifact_approval"] } } }, "then": { "required": ["pending"], "not": { "required": ["action"] } } },
+    { "if": { "properties": { "phase": { "const": "artifact_approval" } } }, "then": { "properties": { "pending": { "properties": { "role": { "const": "artifact" } } } } } }
+  ],
+  "$defs": {
+    "artifactRef": { "type": "string", "pattern": "^artifact://T-[0-9]{4,}/step-[0-9]{3,}/[A-Za-z0-9][A-Za-z0-9._-]*@v[1-9][0-9]*$" },
+    "revision": {
+      "title": "WorkflowRevision", "type": "object", "additionalProperties": false,
+      "required": ["target", "text", "destination"],
+      "properties": {
+        "target": { "$ref": "hitl-target.schema.json" },
+        "text": { "type": "string", "minLength": 1 },
+        "destination": { "enum": ["planner", "worker", "reviewer"], "description": "명시적으로 선택한 재작업 역할. AI가 사람의 의도를 분류하지 않는다." }
+      }
+    }
+  }
+}

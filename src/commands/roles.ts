@@ -13,9 +13,11 @@ import { failRun, submitRun } from './runs.js';
 import { recordDecision } from './plan.js';
 import { recordGate } from './gates.js';
 import { collectWorker, type WorkerCommandContext } from './worker.js';
+import { requireWorkflowAction } from './workflow-guard.js';
 
 export interface SubmitRoleInput { taskId: string; stepId?: string; runId: string; role: 'planner' | 'reviewer'; input: RoleExecutionInput }
 export async function submitRole(ctx: WorkerCommandContext, input: SubmitRoleInput) {
+  requireWorkflowAction(ctx, await openTask(ctx, input.taskId), input.role, input.runId);
   checkKeys(input, ['taskId', 'stepId', 'runId', 'role', 'input']);
   rejectIf(schemaIssues('role-execution-input', input.input, 'input'));
   if (input.input.resolved_settings) throw new ExecutionError('resolved_settings is system-owned');
@@ -27,6 +29,8 @@ export async function submitRole(ctx: WorkerCommandContext, input: SubmitRoleInp
   const task = await openTask(ctx, input.taskId);
   const workspace = await getWorkspace(ctx, input.taskId);
   if (workspace.state !== 'ready') throw new ExecutionError('Task Workspace is not ready');
+  if (!run && task.workflow && input.role === 'planner' && workspace.location.dirty) throw new ExecutionError('Workflow Planner requires clean code so its question snapshot can be pinned');
+  const pinnedCode = run?.execution?.pinned_code ?? (task.workflow && input.role === 'planner' ? { repo: task.target.repo, branch: workspace.preparation.task_branch, head_sha: workspace.location.head } : undefined);
   const step = input.stepId ? await ctx.store.get('step', { taskId: input.taskId, stepId: input.stepId }) : undefined;
   if (input.role === 'reviewer' && !step) throw new ExecutionError('Reviewer Step not found');
   let spec: RoleExecutionInput, packet: string;
@@ -38,6 +42,7 @@ export async function submitRole(ctx: WorkerCommandContext, input: SubmitRoleInp
     packet = new TextDecoder().decode(bytes);
   } else {
     const artifacts: ArtifactVersion[] = [];
+    if (input.role === 'planner') artifacts.push(...(await ctx.store.list('artifact', { taskId: input.taskId })).items);
     if (input.role === 'reviewer') {
       if (!input.input.artifact_refs?.length) throw new ExecutionError('Reviewer requires explicit Artifact versions');
       const reasons: string[] = [];
@@ -70,15 +75,17 @@ export async function submitRole(ctx: WorkerCommandContext, input: SubmitRoleInp
     spec = { ...original, ...values, ...(model != null ? { model } : {}), resolved_settings: settings };
     const feedback = (await ctx.store.list('feedback', { taskId: input.taskId })).items;
     const gates = (await ctx.store.list('gate_result', { taskId: input.taskId })).items;
-    packet = JSON.stringify({ task, ...(step ? { step } : {}), artifacts, artifactContents, feedback, gates,
+    const decisions = (await ctx.store.list('decision', { taskId: input.taskId })).items;
+    const steps = (await ctx.store.list('step', { taskId: input.taskId })).items;
+    packet = JSON.stringify({ task, ...(step ? { step } : {}), ...(pinnedCode ? { pinned_code: pinnedCode } : {}), steps, decisions, artifacts, artifactContents, feedback, gates,
       ...(input.input.deterministic ? { supplied_deterministic_evidence: input.input.deterministic } : {}),
       note: 'Only the caller-supplied prompt and this frozen Context are assembled. Missing Ledger or external references must be reported in packet_gaps.' });
   }
   const runner = ctx.runners?.get(spec.backend ?? 'fake') ?? ctx.runner;
   if (ctx.runnerOverride && ctx.runnerOverride !== runner.id) throw new ExecutionError('Explicit Runner backend differs from resolved settings');
   if (runner.id !== (spec.backend ?? 'fake')) throw new ExecutionError('Runner backend mismatch');
-  const key = run ? executionKey(run) : { taskId: input.taskId, runId: input.runId, executionId: randomUUID() };
-  let readVersion: RunRequest['readVersion'];
+  const key = run ? executionKey(run) : { taskId: input.taskId, runId: input.runId, executionId: ctx.workflowActionId ?? randomUUID() };
+  let readVersion: RunRequest['readVersion'] = pinnedCode ? { head: pinnedCode.head_sha, branch: pinnedCode.branch } : undefined;
   for (const ref of spec.artifact_refs ?? []) {
     const artifact = await ctx.store.get('artifact', { ref });
     if (artifact?.code) readVersion = { head: artifact.code.head_sha, branch: artifact.code.branch };
@@ -94,7 +101,7 @@ export async function submitRole(ctx: WorkerCommandContext, input: SubmitRoleInp
       role: input.role, purpose: input.role === 'reviewer' ? 'review' : 'plan', access: 'read', backend: runner.id,
       backendVersion: runner.version, ...(spec.model ? { model: spec.model } : {}), ...(spec.reasoning ? { reasoning: spec.reasoning } : {}),
       ...(spec.resolved_settings ? { resolvedSettings: spec.resolved_settings } : {}), sessionPath: 'new', performer: 'isolated_session', packet,
-      execution: { id: key.executionId, workspace_id: request.workspaceId, input_sha256: roleDigest(spec), request_sha256: originalDigest }, executionInput: spec }));
+      execution: { id: key.executionId, workspace_id: request.workspaceId, input_sha256: roleDigest(spec), request_sha256: originalDigest, ...(pinnedCode ? { pinned_code: pinnedCode } : {}) }, executionInput: spec }));
   }
   await runner.submit(request);
   return getExecution({ ...ctx, runner }, input);

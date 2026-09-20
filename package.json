@@ -33,7 +33,8 @@
     "typecheck": "tsc --noEmit",
     "pretest": "npm run gen",
     "test": "vitest run",
-    "execution": "node scripts/execution.mjs"
+    "execution": "node scripts/execution.mjs",
+    "hitl": "node scripts/hitl.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

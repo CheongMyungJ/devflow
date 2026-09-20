@@ -74,4 +74,28 @@ Claude Code stream input만 live 메시지를 지원한다. command는 메시지
 
 2026-09-20에는 Windows / Node.js 22.15.1에서 `node tests/runner/real-smoke.mjs codex --reviewer`와 `node tests/runner/real-smoke.mjs claude-code --reviewer`를 실행했다. Codex 0.154.0(CLI 기본 모델)·Claude Code 2.1.278(sonnet 요청)이 각각 임시 repo에서 Worker 파일 생성 → 호출자 강제 종료 후 수집 → 문서 버전을 읽는 독립 Reviewer → Gate 기록을 통과했다. 실행 증거는 각 임시 root의 verification.json/reviewer-verification.json과 로컬 로그에 남긴다. 실제 모델의 코드 commit 검증·live 메시지·취소·출력 재시도까지 이 smoke로 검증했다고 주장하지 않는다. 해당 경로는 대역 계약 테스트로 검사한다.
 
-자동 Gate 실행·advance·HITL 대화 화면은 이번 Runner의 완료를 뜻하지 않는다. “승인 / 세션 접속” 화면은 기록·버전 경계를 유지하는 관리형 대화로 설계하며, 기존 backend CLI를 직접 여는 기능으로 대체하지 않는다.
+역할별 HITL과 최소 `advance`는 ADR-0022에 따라 구현했다. 관리형 실행 계약을 질문 대화에 확장하지 않는다.
+
+## 독립 질문 인계
+
+`Runner.openQuestion`은 새 대화형 CLI에 질문과 고정 Context를 넘기고 터미널 실행 인계만 확인한다. `prepare/submit/inspect`, 관리형 Run ID, transcript 수집, 종료 감시, 취소나 답변 수집 경로를 사용하지 않는다. 질문 창이 열린 동안에도 `respondHitl`이 실행될 수 있다. 인계 결과 사건이 늦게 도착해도 Task/Step 진행 상태를 덮어쓰지 않는다.
+
+backend/model/reasoning은 공통 설정의 question 선택자로 해석한다(ADR-0023). Runner 요청에 선택된 model/reasoning만 전달하며 권한이나 대화 timeout을 설정하는 경로는 없다. Codex와 Claude Code의 관리형/질문 실행은 각 backend 안에서 모델·추론 조합 검사를 공유하고 질문 CLI의 추론 설정도 어댑터 안에서 native 옵션으로 변환한다.
+
+Windows의 Codex **0.154.0**, Claude Code **2.1.278**, 공식 1.x 문서에 따른 OpenCode 질문 어댑터를 제공한다(ADR-0024). 공통 자료 준비·Windows 터미널 인계는 `runner/local/question`에 있고 CLI 인자와 권한은 각 어댑터에 있다. OpenCode는 사용자 요청으로 설치·실행·권한 검증을 하지 않는다. 다른 OS와 fake의 실제 질문 CLI는 미지원이다. Codex 대화형 명령에는 `exec` 전용 `--ignore-user-config/--ignore-rules`를 사용하지 않는다. 빈 native 설정 디렉터리에서 읽기 전용 sandbox, 승인 금지, 플러그인/앱/훅 비활성화, 기억 기능 차단을 적용한다. 사용자 인증 정보·설정·세션은 복사하지 않으므로 창 안에서 로그인 또는 sandbox 설정이 필요할 수 있다. 운영체제/관리자 제약은 우회하지 않는다.
+
+Claude 질문은 safe-mode/restricted, Read/Glob/Grep만 허용, dontAsk, MCP 차단, 메모리/확장 비활성화와 새 CLAUDE_CONFIG_DIR을 사용한다. `--print`나 print 전용 권한 옵션은 넣지 않는다. OpenCode 질문은 문서의 TUI `--pure`, 전용 primary agent, 기본 deny에서 read/glob/grep만 허용하고 외부 디렉터리를 거부한다. 기본 build/plan/general/explore/scout는 비활성화하고 질문 전용 home/config/data 경로와 공유·플러그인 제한을 구성한다. OpenCode reasoning은 OpenAI 모델의 agent reasoningEffort에만 연결하며 다른 provider에서는 생략한다. 이 구현을 OS sandbox 또는 실제 쓰기 차단 검증으로 간주하지 않는다.
+
+질문 자료는 버전이 명시된 blob 원문과 SHA의 Git blob 바이트다. Artifact가 아직 없는 첫 Planner도 제출 당시 clean HEAD를 Run에 고정한다. 링크·submodule·크기 제한을 넘는 코드 스냅샷은 거부한다. worktree를 복사하지 않으며 새 worktree도 만들지 않는다. native CLI가 자기 인증/이력 자료를 저장하는 것과 devflow가 답변을 수집하는 것은 별개다. devflow는 native 디렉터리를 자동 삭제하거나 동기화하지 않는다.
+
+검증은 구분한다. 단위/계약 테스트는 권한 인자, 격리 자료, 인계 실패, 질문과 승인 경합, Run/잠금 미등록을 검사한다. `node tests/runner/question-smoke.mjs`는 명시적으로 실제 Windows 콘솔을 잠깐 열어 TTY와 즉시 반환을 확인하고, 설치된 Codex sandbox에서 임시 질문 자료·Task 파일·Store 파일 쓰기가 모두 EPERM인지 검사한다. 2026-09-20 실측은 인계 약 0.5초, TTY 세 스트림 정상, 상속 MCP 0개, 쓰기 세 건 차단이었다. **이 smoke는 모델 호출이나 실제 사용자 질문 대화를 검사하지 않는다.** OpenCode 실제 연동 검증을 뜻하지도 않는다.
+
+질문 AI 설정 추가 후 같은 smoke를 재실행해 model/reasoning 옵션이 포함된 대화형 인자를 설치된 CLI가 받아들이는지 확인했다. 인계 454 ms와 동일한 TTY/쓰기 차단 결과를 얻었다. 옵션 파싱 검증은 해당 모델의 실제 응답이나 계정 접근 권한 검증을 뜻하지 않는다.
+
+질문 backend 확장과 공통 인계 분리 뒤 같은 Codex smoke는 470 ms, TTY 정상·쓰기 3건 차단을 재확인했다. Claude 2.1.278은 질문 인자에 `--help`를 붙여 옵션 파싱을 확인했고 읽기 도구·새 설정 위치·고정 입력·인계 실패는 대역 테스트로 검사했다. OpenCode 관련 18개 테스트는 명시적으로 제외했다. OpenCode 설치·CLI 실행·모델 호출·권한 검증은 수행하지 않았다.
+
+## 시스템 deterministic 실행
+
+Verifier는 AI Runner와 별도 인터페이스다. Task worktree·고정 HEAD·선언된 명령으로 요청을 준비하고 `@명령`을 설정 제공자로 해석한 실행 계획을 고정한다. 실행 기록이 없는 missing만 새로 준비하고, 불완전한 기록이나 영구 시작 표식 뒤 중단은 unknown이며 재시작하지 않는다. 종료 영수증만 수집한다. 실행 전후 HEAD/추적 상태가 바뀌면 실패로 기록하고 변경을 보존한다. 이미 끝난 실패는 worktree가 변경돼도 회수하며, 다음 Worker는 사람이 미수집 변경을 확인·정리한 뒤 시작한다. 검증 증거는 해당 Step/버전에만 적용하고 다음 Step에 상속하지 않는다.
+
+명령마다 기본 300초, 이름으로 참조한 명령은 설정된 timeout을 사용한다. stdout/stderr는 검사당 최초 1 MiB까지 로컬 로그로 남기며 공유 결과에는 이름·종료 코드·기대 결과만 둔다. `expect: failure`는 timeout/프로세스 생성 실패를 제외한 명령의 nonzero 종료를 뜻하며, 실패 원인의 의미 판단은 별도 semantic 검증에 선언해야 한다. 의존성 setup과 프로젝트 exclusive 잠금은 아직 없으므로 해당 설정은 거부한다.

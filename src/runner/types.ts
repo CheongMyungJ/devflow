@@ -1,5 +1,5 @@
 // ADR-0019: durable asynchronous execution. Local paths never enter shared Run records.
-import type { RunnerLocalRequest, RunnerLocalResult } from '../types/generated/index.js';
+import type { RunnerLocalRequest, RunnerLocalResult, QuestionSettings } from '../types/generated/index.js';
 
 export type RunRequest = RunnerLocalRequest;
 export type ExecutionKey = RunRequest['key'];
@@ -11,6 +11,8 @@ export type ExecutionState =
   | { state: 'unknown'; reason: string; action: string };
 
 export interface Runner {
+  /** Independent interactive question handoff. No managed Run, inspect, transcript or completion receipt. */
+  openQuestion?(request: QuestionRequest): Promise<void>;
   readonly id: string;
   readonly version: string;
   readonly capabilities: {
@@ -26,6 +28,17 @@ export interface Runner {
   cancel?(key: ExecutionKey): Promise<ExecutionState>;
   message?(key: ExecutionKey, input: { id: string; text: string }): Promise<{ delivered: boolean; reason?: string }>;
   logs?(key: ExecutionKey, input?: { offset?: number; limit?: number }): Promise<{ text: string; offset: number; nextOffset: number; truncated: boolean }>;
+}
+
+export interface QuestionRequest {
+  id: string;
+  /** Local-only exclusion used to keep snapshot preparation outside the Task worktree. */
+  workdir: string;
+  /** Frozen snapshot assembled by commands; contains no local paths or live worktree mounts. */
+  context: string;
+  question: string;
+  model?: NonNullable<QuestionSettings['model']>;
+  reasoning?: NonNullable<QuestionSettings['reasoning']>;
 }
 
 /** Construct/cache adapters at the process composition boundary. */

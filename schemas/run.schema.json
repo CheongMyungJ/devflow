@@ -45,6 +45,14 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
           "description": "설정 해석 전 호출 입력 digest. 재제출 시 현재 설정을 다시 적용하지 않기 위한 식별자."
+        },
+        "pinned_code": {
+          "description": "자동 흐름 Planner가 읽은 코드 기준. 실행 시작 직전에 확인하며 독립 질문에도 이 SHA의 Git 객체만 제공한다.",
+          "type": "object", "additionalProperties": false, "required": ["repo", "branch", "head_sha"],
+          "properties": {
+            "repo": { "type": "string" }, "branch": { "type": "string" },
+            "head_sha": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" }
+          }
         }
       }
     },

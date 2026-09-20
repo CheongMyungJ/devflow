@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/question-settings.schema.json",
+  "title": "QuestionSettings",
+  "description": "독립 질문 CLI의 AI 선택. 공통 설정 계층을 따르되 관리형 실행의 timeout/isolation/output_retries는 받지 않는다. 읽기 전용 권한은 고정이며 대화 수명은 관리하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "backend": { "$ref": "execution-settings.schema.json#/properties/backend" },
+    "model": { "$ref": "execution-settings.schema.json#/properties/model" },
+    "reasoning": { "$ref": "execution-settings.schema.json#/properties/reasoning" }
+  }
+}

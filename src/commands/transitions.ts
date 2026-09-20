@@ -19,6 +19,8 @@ export type TransitionCommand =
   | 'recordGate(fail)'
   | 'requestRevision'
   | 'approveStep'
+  | 'holdGate'
+  | 'reviseResult'
   | 'cancelStep';
 
 export interface StepTransition {
@@ -44,6 +46,8 @@ export const STEP_TRANSITIONS: readonly StepTransition[] = Object.freeze([
   { from: 'revising', to: 'checking', command: 'completeRun' },
   { from: 'in_review', to: 'approved', command: 'approveStep' },
   { from: 'approved', to: 'closed', command: 'approveStep' },
+  { from: 'checking', to: 'same', command: 'holdGate' },
+  { from: 'checking', to: 'revising', command: 'reviseResult' },
   ...(['proposed', 'defined', 'running', 'checking', 'in_review', 'revising'] as const).map((from) => ({ from, to: 'cancelled' as const, command: 'cancelStep' as const })),
 ] satisfies StepTransition[]);
 

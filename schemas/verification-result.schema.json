@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/verification-result.schema.json", "title": "VerificationResult",
+  "description": "특정 실행에 대한 deterministic 검증 영수증. 원문 로그는 머신에 남기며 공유 기록에는 명령 이름과 종료 결과만 둔다.",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "checks", "verdict"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "verdict": { "enum": ["pass", "fail"] },
+    "checks": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "name", "result", "evidence"],
+      "properties": {
+        "kind": { "const": "deterministic" }, "name": { "type": "string" },
+        "result": { "enum": ["pass", "fail"] }, "evidence": { "type": "string" }
+      }
+    } }
+  }
+}

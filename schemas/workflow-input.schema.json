@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/workflow-input.schema.json", "title": "WorkflowInput",
+  "description": "최소 자동 흐름의 시작 설정. 실행별 backend/model 설정은 기존 역할 설정 계층을 따른다. 생략한 HITL은 켠다.",
+  "type": "object", "additionalProperties": false,
+  "properties": {
+    "planner": { "$ref": "role-execution-input.schema.json" },
+    "worker": { "$ref": "role-execution-input.schema.json", "description": "Worker prompt와 실행 옵션. Artifact 매핑은 Step outputs에서 시스템이 만든다." },
+    "reviewer": { "$ref": "role-execution-input.schema.json" },
+    "hitl": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "planner": { "type": "boolean", "default": true },
+        "worker": { "type": "boolean", "default": true },
+        "reviewer": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

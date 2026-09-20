@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": ["id", "task_id", "action", "rationale", "created_at"],
   "properties": {
+    "supersedes": { "type": "string", "pattern": "^D-[0-9]{3,}$", "description": "수정 요청으로 대체하는 이전 Planner 제안. 이전 Decision은 보존하며 시스템만 채운다." },
     "id": { "type": "string" },
     "task_id": { "type": "string" },
     "after_step": { "type": ["string", "null"], "description": "이 결정 직전에 끝난 Step. 첫 결정이면 null." },

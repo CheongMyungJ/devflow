@@ -41,3 +41,8 @@
 | [0017](0017-stage0-records-through-commands.md) | 0단계의 기록을 Store 위의 command 로, 운영 스크립트는 조립 지점을 거치는 얇은 입구로 |
 | [0018](0018-workspace-preparation.md) | Workspace 준비 — 원격 기본값, 시작 SHA 고정, 중단 후 대조 |
 | [0019](0019-recoverable-worker-execution.md) | Worker 실행 — Task/Run/UUID 식별, 영구 시작 표식, 호출자 종료 후 결과 회수 |
+| [0020](0020-local-cli-worker-adapters.md) | 로컬 CLI Worker 어댑터 |
+| [0021](0021-role-settings-and-managed-execution.md) | 역할 실행 설정과 관리형 실행 |
+| [0022](0022-role-hitl-and-independent-questions.md) | 역할별 HITL과 독립 읽기 전용 질문 CLI |
+| [0023](0023-question-ai-settings.md) | 독립 질문 AI의 공통 설정 계층 |
+| [0024](0024-question-backend-adapters.md) | 질문 CLI의 backend별 대화형 어댑터 |

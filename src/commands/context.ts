@@ -10,6 +10,8 @@ export interface Clock {
 export const systemClock: Clock = { now: () => new Date() };
 
 export interface CommandContext {
+  /** Orchestrator 내부 실행 예약. CLI 입력으로 받지 않는다. */
+  workflowActionId?: string;
   /** 프로세스당 하나만 만든다 (docs/design/commands.md 5절). */
   store: Store;
   clock: Clock;

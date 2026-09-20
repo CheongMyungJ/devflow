@@ -19,14 +19,14 @@
       "enum": ["review", "live", "plan"]
     },
     "target": {
-      "description": "대상. approval 과 revision_request 는 artifact_ref(버전 포함)가 필수다.",
+      "description": "대상. approval은 artifact_ref(버전 포함), revision_request는 artifact_ref 또는 plan 채널의 decision_id가 필수다.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "artifact_ref": { "type": "string", "description": "artifact://…@vN — 반드시 버전을 포함한다." },
         "location": { "type": "string", "description": "선택. 'path:line' 형태의 위치 (PR 코멘트 매핑용)." },
         "run_id": { "type": "string", "description": "channel=live 인 경우 대상 실행." },
-        "decision_id": { "type": "string", "description": "kind=answer 인 경우 대상 Decision." }
+        "decision_id": { "type": "string", "description": "답변 또는 Planner 제안 수정 요청의 정확한 Decision." }
       }
     },
     "text": { "type": "string" },
@@ -42,8 +42,15 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "kind": { "enum": ["approval", "revision_request"] } } },
+      "if": { "properties": { "kind": { "const": "approval" } } },
       "then": { "required": ["target"], "properties": { "target": { "required": ["artifact_ref"] } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "revision_request" } } },
+      "then": { "required": ["target"], "anyOf": [
+        { "properties": { "target": { "required": ["artifact_ref"] } } },
+        { "properties": { "channel": { "const": "plan" }, "target": { "required": ["decision_id"] } } }
+      ] }
     }
   ]
 }
