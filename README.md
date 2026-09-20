@@ -11,7 +11,7 @@
 | 위치 | 내용 |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 현재 구조 (항상 현재 상태만 기술) |
-| [docs/roadmap.md](docs/roadmap.md) | 단계별 목표와 다음 단계로 넘어가는 기준 |
+| [docs/roadmap.md](docs/roadmap.md) | 현재 구현 수준, 남은 작업의 단일 목록, 다음 작업 순서와 단계별 기준 |
 | [docs/design/workspace.md](docs/design/workspace.md) | Workspace 준비·조회와 중단 후 복구 계약 |
 | [docs/adr/](docs/adr/) | 결정 기록 (변경 불가, 번호순) |
 | [docs/retro/](docs/retro/) | Task 회고 — 개선 작업의 근거 |
