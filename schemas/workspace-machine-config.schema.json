@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/workspace-machine-config.schema.json",
+  "title": "WorkspaceMachineConfig",
+  "description": "머신별 Workspace 실행 설정. 공유 Task 기록이 아니며 데이터 저장소 밖에 둔다. 경로는 이 파일 기준 상대 경로 또는 절대 경로다.",
+  "type": "object", "additionalProperties": false, "required": ["projects"],
+  "properties": {
+    "projects": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["clone", "worktree_root"],
+        "properties": {
+          "clone": { "type": "string", "minLength": 1, "description": "이미 존재하는 로컬 clone." },
+          "worktree_root": { "type": "string", "minLength": 1, "description": "Task worktree를 생성할 머신 전용 루트. 대상 clone 밖에 둔다." },
+          "remote": { "type": "string", "minLength": 1, "default": "origin", "description": "등록된 URL과 대조할 Git remote 이름. 생략하면 origin." }
+        }
+      }
+    }
+  }
+}

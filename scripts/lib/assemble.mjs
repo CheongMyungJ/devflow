@@ -17,14 +17,18 @@ function devflowHead() {
 
 /**
  * 데이터 디렉터리 하나에 대한 command 와 CommandContext 를 만든다. Store 는 프로세스당 하나(commands.md 5절).
- * @param {{ dataDir: string, actor?: string }} options actor 는 `human:<id>` 또는 `system`(기본)
- * @returns {Promise<{ commands: typeof import('../../src/commands/index.js'), ctx: import('../../src/commands/index.js').CommandContext }>}
+ * @param {{ dataDir: string, actor?: string, machineConfig?: string }} options actor 는 `human:<id>` 또는 `system`(기본)
+ * @returns {Promise<{ commands: typeof import('../../src/commands/index.js'), queries: typeof import('../../src/queries/index.js'), ctx: import('../../src/commands/index.js').WorkspaceCommandContext }>}
  */
-export async function assemble({ dataDir, actor = 'system' }) {
+export async function assemble({ dataDir, actor = 'system', machineConfig = process.env.DEVFLOW_MACHINE_CONFIG }) {
   const { dir } = prepareBuild();
   const load = (rel) => import(pathToFileURL(join(dir, rel)).href);
   const commands = await load('src/commands/index.js');
   const { FileStore } = await load('src/store/file/index.js');
-  const ctx = { store: new FileStore({ dataDir }), clock: commands.systemClock, actor, systemSha: devflowHead() };
-  return { commands, ctx };
+  const { FileProjectCatalog } = await load('src/workspace/git/settings.js');
+  const { GitWorkspace } = await load('src/workspace/git/workspace.js');
+  const workspace = new GitWorkspace(new FileProjectCatalog(join(dataDir, 'projects.yaml'), machineConfig));
+  const ctx = { store: new FileStore({ dataDir }), clock: commands.systemClock, actor, systemSha: devflowHead(), baseBranches: workspace, workspace };
+  const queries = await load('src/queries/index.js');
+  return { commands, queries, ctx };
 }

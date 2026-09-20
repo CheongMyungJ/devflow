@@ -21,6 +21,8 @@
     "approve-step": "node scripts/approve-step.mjs",
     "add-feedback": "node scripts/add-feedback.mjs",
     "issue-task": "node scripts/issue-task.mjs",
+    "prepare-workspace": "node scripts/prepare-workspace.mjs",
+    "workspace-status": "node scripts/workspace-status.mjs",
     "complete-task": "node scripts/complete-task.mjs",
     "check-store-read": "npm run gen && node scripts/check-store-read.mjs",
     "check-gitignore": "node scripts/check-gitignore.mjs",

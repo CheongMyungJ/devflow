@@ -1,7 +1,7 @@
 // 입구(scripts/*.mjs)가 함께 쓰는 것: 인자 해석, 입력 파일 읽기, 결과와 거부의 보고 (docs/design/commands.md 6.1·6.3).
 // 데이터 디렉터리에 쓰지 않고 Store 를 모른다 — 기록은 입구가 조립 지점(./assemble.mjs)에서 받은 commands.* 만 쓴다.
 // 읽는 파일(패킷, 역할 세션의 출력, 사람이 쓴 정의)의 로컬 경로는 여기서 내용으로 바뀌고 command 에는 가지 않는다.
-// exit code: 0 기록함, 1 거부(아무것도 쓰지 않았다), 2 사용법 오류(아무것도 쓰지 않았다).
+// exit code: 0 성공, 1 거부/실패, 2 사용법 오류. WorkspacePreparationError는 기록/Git 결과가 남을 수 있다.
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 
@@ -106,7 +106,9 @@ export async function report(work) {
     const lines = await work();
     for (const line of [].concat(lines)) console.log(line);
   } catch (error) {
-    if (error?.name === 'RejectedInputError') {
+    if (error?.name === 'WorkspacePreparationError') {
+      console.error(`${error.name}: ${error.message}`);
+    } else if (error?.name === 'RejectedInputError') {
       console.error('rejected — 아무것도 기록하지 않았다:');
       for (const reason of error.reasons) console.error(`  ${reason}`);
     } else if (error?.name === 'CommitOutcomeUnknownError') {

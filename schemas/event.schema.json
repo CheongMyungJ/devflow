@@ -24,7 +24,7 @@
         "artifact.version_added", "artifact.approved",
         "feedback.added",
         "gate.completed",
-        "ledger.updated"
+        "ledger.updated", "workspace.prepare_requested", "workspace.prepared"
       ]
     },
     "actor": {
@@ -38,5 +38,18 @@
     "data": { "type": "object", "description": "이벤트별 부가 데이터 (예: status_changed 의 from/to)." },
     "system_sha": { "type": "string", "description": "실행 당시 devflow repo 의 commit SHA (프롬프트/스키마 버전 추적)." },
     "at": { "type": "string", "format": "date-time" }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "workspace.prepare_requested" } } },
+      "then": { "required": ["data"], "properties": { "data": { "$ref": "workspace-preparation.schema.json" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "workspace.prepared" } } },
+      "then": { "required": ["data"], "properties": { "data": {
+        "type": "object", "additionalProperties": false, "required": ["workspace_id"],
+        "properties": { "workspace_id": { "type": "string", "format": "uuid", "description": "완료된 workspace.prepare_requested의 식별자." } }
+      } } }
+    }
+  ]
 }

@@ -75,4 +75,8 @@ Intake 는 **두 단계**다. 1단계에서 짧고 쉬운 말의 의도 초안�
 
 ## 출력
 
-`schemas/task.schema.json` 을 만족하는 Task 정의.
+발행 입력용 Task 정의. `schemas/task.schema.json`이 기록의 기준이며 id·status·created_at·created_by·target.task_branch는 발행 도구가 채운다.
+
+- 기준 branch를 지정하지 않았으면 `target.base_branch`를 생략한다. 발행 도구가 원격 저장소의 기본 branch를 조회한다. 현재 checkout이나 등록부의 옛 기본값을 추측해서 채우지 않는다.
+- 사람이 branch 이름만 지정하면 원격 기준이다. 로컬 branch를 명시한 경우 `target.base_source: local`과 이름을 함께 적는다. 원격을 명시하면 `remote`다.
+- 최초 Workspace 준비 때 원격 branch를 fetch해 시작 SHA를 고정한다. 재시도는 그 SHA를 유지한다. 이 기본 정책을 적용하는 데 별도의 확인 질문은 필요 없다.

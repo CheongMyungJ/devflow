@@ -5,11 +5,12 @@ import { humanId } from './common.js';
 import type { CommandContext } from './context.js';
 import { RejectedInputError } from './errors.js';
 import { confirmOutcome } from './outcome.js';
+import { isBranchName } from '../workspace/refs.js';
 import { recordedAt } from './time.js';
 
 /** 발행 시점에 시스템이 채우는 것(id, status, created_at, created_by, target.task_branch)을 뺀 Task. */
 export type CreateTaskInput = Omit<Task, 'id' | 'status' | 'created_at' | 'created_by' | 'target'> & {
-  target: Omit<Task['target'], 'task_branch'>;
+  target: Omit<Task['target'], 'task_branch' | 'base_branch'> & { base_branch?: string };
   /** task branch 이름에 붙일 짧은 설명. `task/T-0001-<slug>`. 없으면 `task/T-0001`. */
   branchSlug?: string;
   /** task.created 의 data — 발행의 출처(backlog 항목), Intake 의 방식, 경위(note). 옛 기록에 있던 자리다. 없으면 data 를 쓰지 않는다. */
@@ -50,6 +51,15 @@ export async function createTask(ctx: CommandContext, input: CreateTaskInput): P
   if (reasons.length) throw new RejectedInputError(reasons);
 
   const { branchSlug, createdData, target, ...rest } = input;
+  const source = target.base_source === undefined ? 'remote' : target.base_source;
+  if (source !== 'remote' && source !== 'local') throw new RejectedInputError(['target.base_source: remote 또는 local이어야 한다']);
+  let branch = target.base_branch;
+  if (branch === undefined) {
+    if (source === 'local') throw new RejectedInputError(['target.base_branch: 로컬 기준이면 branch 이름이 필요하다']);
+    if (!ctx.baseBranches) throw new RejectedInputError(['target.base_branch: 원격 기본 branch 조회를 위한 프로젝트 설정이 필요하다']);
+    branch = await ctx.baseBranches.defaultBranch(target.repo);
+  }
+  if (!isBranchName(branch)) throw new RejectedInputError(['target.base_branch: 올바른 branch 이름이어야 한다 (ref 표현식·로컬 경로는 받지 않는다)']);
   const slug = branchSlug ? slugify(branchSlug) : '';
   const createdAt = recordedAt(ctx.clock);
   const data = Object.fromEntries(Object.entries(createdData ?? {}).filter(([, v]) => v !== undefined));
@@ -67,7 +77,7 @@ export async function createTask(ctx: CommandContext, input: CreateTaskInput): P
     sent = {
       ...rest,
       id: taskId,
-      target: { ...target, task_branch: slug ? `task/${taskId}-${slug}` : `task/${taskId}` },
+      target: { ...target, base_branch: branch, base_source: source, task_branch: slug ? `task/${taskId}-${slug}` : `task/${taskId}` },
       status: 'open',
       created_at: createdAt,
       created_by: createdBy,
