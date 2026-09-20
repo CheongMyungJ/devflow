@@ -14,3 +14,7 @@ export { completeTask, type CompleteTaskInput } from './complete-task.js';
 export { prepareWorkspace, type WorkspaceCommandContext, type PreparedWorkspace } from './workspace.js';
 export { WorkspacePreparationError } from '../workspace/errors.js';
 export { submitWorker, collectWorker, type WorkerCommandContext, type SubmitWorkerInput } from './worker.js';
+export { submitRole, collectExecution, type SubmitRoleInput } from './roles.js';
+export { cancelExecution, sendExecutionMessage } from './execution-control.js';
+export { createIntake, submitIntake, collectIntake, confirmIntakeIntent, publishIntake, cancelIntake } from './intake.js';
+export { operateExecution } from './execution.js';

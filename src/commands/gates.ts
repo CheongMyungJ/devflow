@@ -3,7 +3,8 @@
 
 import { isGateId } from '../store/refs.js';
 import type { BlobWrite, CommitResult, NewEvent } from '../store/types.js';
-import type { GateResult, Run } from '../types/generated/index.js';
+import type { GateResult, Run, RunnerLocalResult } from '../types/generated/index.js';
+import { completionFields } from '../runner/completion.js';
 import { checkArtifactRef, checkKeys, commitAfterReading, duplicates, isPositiveInteger, openTask, parseJson, rejectIf, schemaIssues, tail } from './common.js';
 import type { CommandContext } from './context.js';
 import { RejectedInputError } from './errors.js';
@@ -12,6 +13,7 @@ import { recordedAt } from './time.js';
 import { nextStepStatus, statusChangedEvents } from './transitions.js';
 
 export interface RecordGateInput {
+  receipt?: RunnerLocalResult['outcome'];
   taskId: string;
   stepId: string;
   /** G-NNN 의 정규형이고 다음에 발급될 id 와 같아야 한다. 생략하면 도구가 발급한다. */
@@ -41,7 +43,7 @@ type ReviewerOutput = Pick<GateResult, 'verdict' | 'checks'> & { done_when: NonN
  * (5) 고쳐질 Run 이 run 스키마에 맞는다(Store 가 검사) — 그리고 gate id 의 모양, artifact 참조, 빈 annotations, 표에 없는 전이.
  */
 export async function recordGate(ctx: CommandContext, input: RecordGateInput): Promise<{ gate: GateResult; result: CommitResult }> {
-  checkKeys(input, ['taskId', 'stepId', 'gateId', 'reviewerRunId', 'artifactRefs', 'output', 'annotations', 'deterministic', 'outputAttempts', 'note']);
+  checkKeys(input, ['taskId', 'stepId', 'gateId', 'reviewerRunId', 'artifactRefs', 'output', 'annotations', 'deterministic', 'outputAttempts', 'note', 'receipt']);
   const { taskId, stepId, reviewerRunId } = input;
   const at = recordedAt(ctx.clock);
 
@@ -90,7 +92,7 @@ export async function recordGate(ctx: CommandContext, input: RecordGateInput): P
       };
       // (4) 만들어질 Gate — Store 도 검사하지만, 거부 문구를 옛 record-gate 처럼 위치와 함께 보인다.
       rejectIf(schemaIssues('gate-result', gate, `gate ${id} (to be written${input.annotations !== undefined ? ', annotations from input' : ''})`));
-      const done: Run = { ...run, status: 'completed', ...(input.outputAttempts !== undefined ? { output_attempts: input.outputAttempts } : {}), ended_at: at, packet_gaps: out.packet_gaps };
+      const done: Run = { ...run, ...completionFields(input.receipt), status: 'completed', ...(input.outputAttempts !== undefined ? { output_attempts: input.outputAttempts } : {}), ended_at: at, packet_gaps: out.packet_gaps };
       const runOwner = { taskId, stepId, runId: reviewerRunId };
       const gateOwner = { taskId, stepId, gateId: id };
       const blobs: BlobWrite[] = [{ owner: runOwner, name: 'output.json', content: input.output }];

@@ -91,3 +91,25 @@ assert.equal(events.filter(e => e.type === 'run.completed').length, 1);
 assert.equal(events.filter(e => e.type === 'artifact.version_added').length, 1);
 assert.equal(collected.artifacts.length, 1);
 console.log(JSON.stringify({ backend, stage: 'verified', root, backendVersion: result.backendVersion, events: events.length, artifacts: 1 }));
+
+// Optional new read-role smoke verifies the same adapter's restricted output-file access.
+if (process.argv.includes('--reviewer')) {
+  const review = await commands.submitRole(ctx, { taskId: task.id, stepId: 'step-001', runId: 'R-002', role: 'reviewer', input: {
+    backend, ...(backend === 'claude-code' ? { model: 'sonnet' } : {}), timeout_seconds: 120,
+    prompt: 'Isolated read-only integration test. Read smoke.txt in the current workspace and verify it contains exactly devflow runner smoke OK followed by a newline. Do not change workspace files, run commands, install, access the network or spawn agents. Write only the designated JSON output file. If correct, verdict pass; include a semantic check named smoke-content with result pass, done_when [{condition:"smoke.txt contains the exact text",met:true}], comments [], packet_gaps [].',
+    artifact_refs: collected.artifacts.map(a => a.ref),
+  } });
+  const reviewKey = executionKey(review.run), reviewDeadline = Date.now() + 150000;
+  let state;
+  do {
+    state = await ctx.runner.inspect(reviewKey);
+    if (['completed', 'failed'].includes(state.state)) break;
+    if (Date.now() > reviewDeadline) throw new Error(`Reviewer timeout; inspect ${root}`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  } while (true);
+  const done = await commands.collectExecution(ctx, { taskId: task.id, runId: 'R-002' });
+  writeFileSync(join(root, 'reviewer-verification.json'), JSON.stringify({ backend, state, status: done.run.status }, null, 2));
+  assert.equal(done.run.status, 'completed', `Reviewer failed; inspect ${root}`);
+  assert.equal(readFileSync(join(prepared.location.workdir, 'smoke.txt'), 'utf8'), 'devflow runner smoke OK\n');
+  console.log(JSON.stringify({ backend, stage: 'reviewer-verified', root, status: done.run.status }));
+}

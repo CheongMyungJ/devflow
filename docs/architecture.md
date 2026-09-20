@@ -65,6 +65,12 @@
 - 겹친 Git 준비는 기다리지 않고 거부한다. Git 생성 도중 강제 종료로 잠금이나 부분 checkout이 남으면 수동 확인을 요구한다. 자동 잠금 회수·삭제·reset은 없다. 의도 기록 뒤 또는 정상 Git 완료 뒤의 중단은 같은 명령으로 복구한다.
 - 운영 입구는 `prepare-workspace`와 `workspace-status`. 머신 설정은 `--machine-config` 또는 `DEVFLOW_MACHINE_CONFIG`, 프로젝트 등록부는 데이터 루트의 `projects.yaml`이다. 포맷은 `schemas/project-registry.schema.json`, `schemas/workspace-machine-config.schema.json`이 기준이다. 사용 예는 `docs/stage0-manual-operation.md`.
 
+### 2.4 발행 전 Intake
+
+같은 Store가 선택적 `IntakeRepository`를 제공한다. FileStore의 `src/store/file/intake.ts` 구현은 기존 lock/파일 연산 아래에서 revision별 불변 스냅샷에 사건·상태·입출력을 함께 게시한다. Task의 필수 필드나 기존 Run의 Task 소속을 느슨하게 만들지 않는다. 새 기록의 기준은 `schemas/intake-draft.schema.json`과 `intake-output.schema.json`이다.
+
+`createIntake / submitIntake / collectIntake / confirmIntakeIntent / publishIntake`는 의도 확인 → 정의 확인의 두 사람 확인 지점을 연결한다. Runner가 준비한 별도 빈 cwd에서 실행하며 대상 repo의 worktree가 아니다. 확인된 의도를 정의 출력이 바꾸면 거부한다. 발행 중 중단은 생성 이벤트의 초안 버전 출처로 기존 Task를 회수하며, 결과가 불명확하면 자동 재발행하지 않는다. `cancelIntake`는 종료 요청 후 수집 경로를 유지한다.
+
 ## 3. 엔티티
 
 ```
@@ -80,7 +86,7 @@ Task 1 ─── N Step 1 ─── N Run ─── Artifact(version)
 - **Task** — 사람이 쓴 정의를 `createTask` 가 발행한다(id·status·created_at·created_by·task_branch 는 도구가 채운다). 유형, 대상 repo, 목표(바라는 결과), 배경, 제약, 수용 기준(AC) + 의도의 칸: 문제, 식별 가능한 성공 기준, 영향받는 사람과 시스템, 범위 밖, 열린 질문(질문마다 누가 답하는가). AC 는 성공 기준을 검증 가능한 문장으로 옮긴 것이고 각 AC 가 어느 성공 기준을 옮겼는지 가리킨다. 사람이 답해야 할 열린 질문이 남은 Task 는 스키마가 거부해 발행되지 않는다 (ADR-0013)
 - **Step** — goal / scope / inputs / outputs / done_when / verify / approval
 - **Artifact** — 문서는 `artifact://T/step/name@vN`, 코드는 `repo+branch+SHA`. 버전마다 한 번 쓰면 바뀌지 않는 meta 가 있고 내용이 어디 있는지(Store 의 blob 인지 대상 repo 인지)를 말한다. 승인된 버전이 공식 기록이고, 승인은 그 버전을 가리키는 승인 Feedback 과 이벤트로 나타낸다
-- **Run** — 역할 세션 한 번의 실행 기록(backend, model, 수행 주체, packet_gaps). Step 에 속하거나(Worker, Reviewer) Task 에 속한다(Intake, Planner). 출력 파일·작업 노트·transcript 는 그 Run 이 소유한 blob 이다
+- **Run** — 역할 세션 한 번의 실행 기록(backend, model, 수행 주체, packet_gaps). Step 에 속하거나(Worker, Reviewer) Task 에 속한다(Planner). 발행 전 Intake 실행은 별도 초안 기록에 속한다. 출력 파일·작업 노트·transcript 는 그 Run 이 소유한 blob 이다
 - **ID** — Task 는 `T-NNNN`, Task 안에서 Step `step-NNN`, Decision `D-NNN`, Feedback `F-NNN`, GateResult `G-NNN`, Run `R-NNN`, Artifact 버전 `v<N>`. 모두 Store 가 발급하고 Task 안에서 kind 마다 유일하다
 - **Feedback** — 수정 요청 / 질문 / 승인 / 요구사항 추가. 검토 시 또는 실행 중(live) 발생
 - **GateResult** — pass/fail, 항목별 결과, 근거, Reviewer 의 지적(severity · class A/B/C · text). Reviewer 가 아닌 출처(시스템, Worker 의 실측)의 정보는 `annotations` 에 따로 담는다
@@ -136,6 +142,8 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 
 ## 7. 사람과의 상호작용
 
+아래 제품 CLI와 HITL 화면은 후속 설계다. 현재 운영 입구의 구현 범위는 8절을 따른다. 최신 후속 요구는 **승인 / 수정 요청**, 보조 기능 **독립 질문 CLI 열기**다. 질문 CLI는 읽기 전용으로 질문 시점의 Context를 전달받으며, devflow는 실행 인계 후 즉시 복귀한다. 대화나 종료를 기다리지 않고 답변을 상태에 반영하지 않는다. 역할별 HITL과 이 질문 CLI는 아직 구현하지 않았다. 이전의 관리형 대화 화면 제안과 달라진 범위·필요한 계약 변경은 [후속 작업 프롬프트](handoff-hitl.md)를 따른다.
+
 | 접점 | 방식 |
 |---|---|
 | Task 발행 | `task new` — Intake 와 실시간 대화. 두 단계로 확인한다: 의도 초안 확인(7칸, AC 없이 — 첫 승인 지점) → 정의 확인(AC 와 범위) 뒤 발행 (ADR-0014) |
@@ -151,21 +159,21 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - Worker 는 Step 종료 시 "실행 중 받은 지시 요약" 을 출력한다. 사람은 검토 시 그중 Task 요구사항으로 올릴 것을 확인한다.
 - Reviewer 세션에는 개입하지 않는다(검증 독립성). 판정에 이견이 있으면 결과에 피드백을 남긴다.
 
-## 8. Runner 와 백엔드
+## 8. Runner 와 역할 실행
 
-구현: TypeScript + Node.js LTS. 인터페이스는 `src/runner/types.ts`, 공통 실행 관리는 `src/runner/local/`, 어댑터는 `fake/`, `claude-code/`, `codex/`, `opencode/`다. 계약은 `docs/design/runner.md`, 결정 배경은 ADR-0019와 ADR-0020이다.
+구현: TypeScript + Node.js LTS. Runner 인터페이스는 `src/runner/types.ts`, 공통 로컬 관리는 `src/runner/local/`, 백엔드 어댑터는 `fake/`, `claude-code/`, `codex/`, `opencode/`다. 계약은 [Runner](design/runner.md), 운영 예는 [역할 실행 사용법](execution-usage.md), 결정은 ADR-0019·0020·0021을 따른다.
 
-- 공개 입구는 `submitWorker / getWorkerExecution / collectWorker`와 운영 스크립트 `submit-worker / worker-status / collect-worker`다. 조립 지점이 Store 하나, Workspace, 명시적으로 선택한 Runner를 Context로 주입한다. CLI는 commands/queries만 호출한다.
-- **식별자는 Task ID + Run ID + 실행 UUID**다. Run은 Task 안의 ID이고 실행 UUID는 Store 간 충돌도 피한다. 공유 Run에는 실행 ID·Workspace ID·명시적 입력 digest가 있으며, 입력은 backend/model 및 산출물 정책을 포함하며 제출과 함께 Run 소유 blob에 저장된다. 같은 Run에 다른 입력/Step/backend를 보내면 거부한다.
-- 제출은 **머신별 요청 prepare → 기존 submitRun commit → Runner submit**이다. 기록된 Run에 로컬 요청이 없으면 새로 만들지 않고 unknown을 반환한다. 최초 시작 전에 영구 launch claim을 만들고 detached supervisor를 실행한다. 시작 표식 뒤 spawn/응답 전 중단은 unknown이며 자동 재시작하지 않는다.
-- supervisor가 Task worktree에서 선택한 Worker CLI를 실행하고 종료 상태와 출력 파일 스냅샷을 로컬 결과에 게시한다. 호출자가 종료돼도 이어간다. live 조회는 loopback 응답의 실행 UUID를 확인한다. PID/출력/stdout 부재만으로 실패를 추정하지 않는다. supervisor도 중단되어 확인할 수 없으면 unknown이다.
-- **출력은 파일로 받는다.** 조회/수집 시 기존 worker-output 스키마로 검증한다. 확인된 비정상 종료(process_exit)와 잘못된 JSON/스키마 또는 exit 0 뒤 파일 누락(invalid_output)을 구별한다. failRun은 해당 실패 종류를 Run에 기록한다. 자동 출력 재시도는 하지 않는다.
-- 수집은 기존 completeRun의 한 commit으로 Run·출력 blob·Artifact 버전·Step 전이·이벤트를 기록한다. 이미 terminal인 Run은 수집 영수증이므로 재수집 때 Artifact나 이벤트를 추가하지 않는다. Store 오류를 Worker 실패로 바꾸지 않는다.
-- 머신별 경로/PID/포트/출력 파일은 명시적 runner-dir 안에만 둔다. 공유 데이터 및 Task worktree 밖을 사용한다. 관련 로컬 기록도 schemas가 기준이며 생성 타입은 커밋하지 않는다. 파일 게시 방식은 프로세스 crash를 대상으로 하고 전원 장애 내구성은 보장하지 않는다.
-- 네 어댑터는 worker/write 신규 세션만 지원한다. 실제 어댑터는 명시적 prompt와 model을 stdin/CLI 옵션에 전달한다. read 격리, resume, 메시지, stream/transcript, cancel은 미지원이며 capabilities와 요청 검증에 드러난다. Context/Ledger 자동 조립, Gate, 전체 advance도 미구현이다. 앞으로 resume을 구현하더라도 실패 시 Context 기반 새 세션 경로를 갖춰야 한다(ADR-0010).
-- 실제 어댑터의 `launch.json`은 CLI 실행 계획이며 공통 supervisor는 옵션을 해석하지 않는다. 출력 전용 디렉터리를 별도로 허용하고 stdout/stderr는 로컬 진단 로그로만 보관한다. 전체 권한/샌드박스 우회 옵션은 사용하지 않는다.
-- `workspace:code`는 성공 종료 뒤 `src/workspace/git/artifact.mjs`가 clean Task branch·기준 commit ancestry·실제 HEAD를 검사해 종료 영수증에 고정한다. collect는 그 SHA로 기존 completeRun을 호출한다. 문서는 `blob:work-notes`를 사용한다. 실제 실행에 미래 SHA를 미리 지정하거나 AI의 참조를 그대로 채택하지 않는다. 미커밋 변경은 보존하며 코드 산출물로 확정하지 않는다.
-- 기존 기록 전용 submitRun/completeRun/failRun과 수동 역할 운영은 유지한다. Worker의 work_notes와 packet_gaps는 기존 스키마/기록 규약을 따른다. roles의 도구 중립성은 유지하며 fake 입력 해석은 어댑터 밖에 두지 않는다.
+- 기존 `submitWorker / getWorkerExecution / collectWorker`를 유지하고, Planner·Reviewer의 `submitRole / getExecution / collectExecution`을 추가했다. `cancelExecution / sendExecutionMessage / getExecutionLog`가 실행 제어·관찰을 담당한다. 공통 운영 입구는 `scripts/execution.mjs`다. CLI는 commands/queries만 호출한다.
+- 조립 지점은 Store 하나와 Workspace, 실행 설정 제공자, RunnerRegistry를 Context에 주입한다. Registry는 backend별 어댑터를 재사용하며, 재조회에는 저장된 Run의 backend를 선택한다. 명시적 backend가 기록과 다르면 오류다.
+- 네 역할의 설정은 `src/settings/`에서 해석한다. 전역/프로젝트 defaults·역할·작업 유형 → 확정 Step → 명시 실행 입력의 순서다. backend가 바뀌면 상속 model/reasoning을 지운다. 파일 위치/포맷은 파일 설정 제공자만 안다. 실효값·출처와 해석 전후 digest를 제출 시 고정하고 재제출 때 설정을 다시 읽지 않는다.
+- 새 제출은 로컬 prepare → 공유 submitRun → Runner 시작이다. 영구 launch claim 뒤에는 자동 재시작하지 않는다. supervisor는 호출자가 종료되어도 실행하고 종료 영수증을 게시한다. 실행 UUID를 확인하는 loopback 응답만 running 증거로 삼는다. 근거가 없으면 unknown이며 출력/PID만으로 결과를 추측하지 않는다.
+- Worker는 Task worktree의 write 실행이다. Planner·Reviewer는 같은 Task worktree의 read 실행이다. Task 안에 수집 전인 관리형 실행이 있으면 다른 역할을 시작하지 않는다. Reviewer는 특정 Artifact 버전들을 입력으로 받는다. read 실행은 ignored를 포함한 파일 내용과 HEAD·index를 시작/종료에 대조하고, 위반 시 변경을 보존하며 invalidated로 기록한다. symlink/junction workspace는 이 검증에서 거부한다.
+- 출력은 역할별 JSON 파일과 스키마로 받는다. Worker는 completeRun, Planner는 recordDecision, Reviewer는 recordGate의 기존 원자적 기록 경로에 연결한다. 코드 산출물은 Git 구현이 clean Task branch·기준 commit ancestry·종료 HEAD를 확인한 SHA를 쓴다. Store 오류를 역할 실패로 바꾸지 않는다.
+- Worker 재작업과 읽기 역할에 최소 Context를 고정해 제공한다. Task/Step, Artifact, Gate, Feedback과 Worker의 이전 노트를 포함한다. 참조 전체의 자동 해석·Ledger 조립·실효 요구사항 합성은 R03·R04의 후속이다. 로컬 실행 계획에는 역할 지침과 프로젝트 AGENTS.md도 고정된다.
+- supervisor가 timeout과 취소 요청을 관찰하고, 해당 실행의 프로세스 트리 종료 뒤에만 결과를 게시한다. 사람 메시지는 Store 이벤트가 성립한 뒤 전달하며 ID로 중복을 막는다. Claude Code의 stream input을 지원하고, Codex/OpenCode의 live 입력과 Reviewer 개입은 거부한다. 백엔드 메시지/로그 형식은 어댑터의 protocol 모듈에만 있다.
+- 로그는 실행 ID에 연결한 머신별 진단 자료다. stdout/stderr/통합·정규화 로그를 각각 최대 8 MiB 보관하며 자동 삭제하거나 공유 Store로 복사하지 않는다. 출력 재시도는 기본 0이다. 설정한 재시도도 종료가 확인된 출력 위반에만 적용한다.
+- 사용자 결정에 따라 모든 역할은 신규 세션이고 resume는 미지원이다. backend session ID는 진단 연결을 위해 수집한다. 완료 Run은 수집 영수증이므로 다시 수집해도 Artifact/Gate/Decision을 추가하지 않는다.
+- 자동 Gate 명령 실행, 전체 advance, HITL 대화 화면과 승인 후 자동 다음 round는 아직 구현하지 않았다. read 검사와 CLI 설정 제한을 완전한 OS·자격증명 격리로 주장하지 않는다. OpenCode 실제 모델 연동은 별도 검증 대상이다.
 
 ## 9. 여러 프로젝트와 동시 진행
 

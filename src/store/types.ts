@@ -3,6 +3,7 @@
 
 import type { ArtifactVersion, Decision, Event, Feedback, GateResult, Run, Step, Task } from '../types/generated/index.js';
 import type { SchemaIssue } from './errors.js';
+import type { IntakeRepository } from './intake.js';
 
 /**
  * Store 가 다루는 엔티티. 새 엔티티는 아래 세 맵에 항목을 추가해서 지원한다.
@@ -138,6 +139,8 @@ export interface ReadEventsOptions {
  * 이 둘은 읽기에서도 던져질 수 있다.
  */
 export interface Store {
+  /** 발행 전 Intake. 이를 지원하지 않는 Store는 실행 전에 명시적으로 거부한다. */
+  readonly intake?: IntakeRepository;
   /**
    * 새 Task 를 만든다. ID 는 Store 가 발급하고, build 는 그 ID 로 Task 와 첫 이벤트들을 만든다.
    * build 가 돌려준 task.id 는 발급된 ID 와 같아야 한다 (다르면 InvalidChangeError).

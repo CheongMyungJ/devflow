@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/planner-output.schema.json",
+  "title": "PlannerOutput",
+  "description": "신규 Planner의 JSON 출력. 시스템 식별 필드는 포함하지 않으며 packet_gaps는 필수다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action",
+    "rationale",
+    "packet_gaps"
+  ],
+  "properties": {
+    "after_step": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "이 결정 직전에 끝난 Step. 첫 결정이면 null."
+    },
+    "action": {
+      "enum": [
+        "next_step",
+        "rework",
+        "ask_human",
+        "done",
+        "abort"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "description": "왜 이 행동인가. 사람이 읽고 납득할 수 있어야 한다."
+    },
+    "next_step": {
+      "description": "action=next_step. Freeform 이면 step 에 전체 정의를, Skill 이면 skill+params 를 쓴다.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "description": "Freeform 의 Step 정의 — step.schema.json 에서 id/task_id/status 를 뺀 정의($defs/definition)를 참조한다. Step 과 같은 검사를 받고, 정의되지 않은 필드(id, task_id, status 포함)는 거부된다.",
+          "$ref": "step.schema.json#/$defs/definition",
+          "unevaluatedProperties": false
+        },
+        "skill": {
+          "type": "string",
+          "description": "name@version"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "step"
+          ],
+          "properties": {
+            "step": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "required": [
+            "skill"
+          ],
+          "properties": {
+            "skill": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "rework": {
+      "description": "action=rework. 대상 Step 과 무엇을 고쳐야 하는지.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step_id",
+        "instructions"
+      ],
+      "properties": {
+        "step_id": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        }
+      }
+    },
+    "question": {
+      "description": "action=ask_human. 가능하면 선택지를 제시한다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "completion": {
+      "description": "action=done. AC 별 충족 근거가 필수이며, 사람이 최종 확정한다.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ac_id",
+          "evidence"
+        ],
+        "properties": {
+          "ac_id": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "근거가 되는 Artifact/GateResult 참조와 설명."
+          }
+        }
+      }
+    },
+    "human_edit": {
+      "type": "string",
+      "description": "Step 제안 확인 단계에서 사람이 수정했다면 그 내용 요약 (회고용)."
+    },
+    "packet_gaps": {
+      "description": "Planner 가 보고한 '받은 Context 패킷에서 부족했거나 모호했던 점'. Planner 의 출력 파일이 곧 Decision 이므로 Planner 는 여기에 적는다(rationale 에 섞어 쓰지 않는다). 시스템은 이 값을 그 Run(planner_run_id)의 packet_gaps 로도 옮긴다 — 역할을 가로질러 볼 때의 기준은 Run 이다. 빈 배열은 '부족한 것이 없었다' 는 보고다. 필드가 없으면 보고하지 않은 것이다(이 필드가 생기기 전의 옛 기록). 새 Decision 에는 항상 적는다.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "부족했거나 모호했던 점 하나. 무엇이 없었거나 모호했고 그래서 어떻게 했는지를 문장으로 쓴다. 로컬 경로를 쓰지 않는다."
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "next_step"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "next_step"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "rework"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "rework"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ask_human"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "question"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "done"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "completion"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/role-execution-input.schema.json",
+  "title": "RoleExecutionInput",
+  "description": "Planner·Reviewer 실행의 고정 입력. Reviewer는 Artifact 버전 참조를 필수로 받는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "prompt"
+  ],
+  "properties": {
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "호출자가 제공한 지시 원문. fake에서는 fake-worker-input JSON 문자열이다. 시스템이 최소 Context를 별도로 조립한다."
+    },
+    "backend": {
+      "enum": [
+        "fake",
+        "claude-code",
+        "codex",
+        "opencode"
+      ],
+      "description": "이번 실행의 명시적 backend. 생략하면 설정 계층을 따르고, 설정이 없으면 fake를 사용한다."
+    },
+    "model": {
+      "$ref": "execution-settings.schema.json#/properties/model",
+      "description": "이번 실행의 명시적 모델. 생략하면 설정을 상속하고 null이면 backend 기본값을 사용한다. 실제 기본 모델을 추정해 기록하지 않는다."
+    },
+    "reasoning": {
+      "$ref": "execution-settings.schema.json#/properties/reasoning"
+    },
+    "timeout_seconds": {
+      "$ref": "execution-settings.schema.json#/properties/timeout_seconds"
+    },
+    "isolation": {
+      "$ref": "execution-settings.schema.json#/properties/isolation"
+    },
+    "output_retries": {
+      "$ref": "execution-settings.schema.json#/properties/output_retries"
+    },
+    "resolved_settings": {
+      "$ref": "resolved-execution-settings.schema.json"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^artifact://T-[0-9]{4,}/step-[0-9]{3,}/[A-Za-z0-9][A-Za-z0-9._-]*@v[1-9][0-9]*$"
+      }
+    },
+    "deterministic": {
+      "type": "string",
+      "description": "호출자가 제공한 deterministic 증거 원문. Runner가 실행한 결과라고 주장하지 않는다."
+    }
+  }
+}

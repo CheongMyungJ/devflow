@@ -5,6 +5,7 @@ import type { RunRequest } from '../types.js';
 export interface LocalAdapter {
   id: string;
   version: string;
+  capabilities?: { supportsResume: boolean; supportsLiveMessage: boolean };
   validate?(request: RunRequest): void;
   launch(request: RunRequest, dir: string): RunnerLocalLaunch;
 }

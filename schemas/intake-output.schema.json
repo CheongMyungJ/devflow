@@ -1,0 +1,370 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/intake-output.schema.json",
+  "title": "IntakeOutput",
+  "description": "Intake의 단계별 출력. 의도 확인 전에는 AC를 생성하지 않는다. 정의 단계는 확인된 의도에서 AC를 만든다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "phase",
+    "summary",
+    "packet_gaps"
+  ],
+  "properties": {
+    "phase": {
+      "enum": [
+        "intent",
+        "definition"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "packet_gaps": {
+      "$ref": "worker-output.schema.json#/properties/packet_gaps"
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem",
+        "goal",
+        "success_criteria",
+        "affected",
+        "constraints",
+        "non_goals",
+        "open_questions"
+      ],
+      "properties": {
+        "problem": {
+          "type": "string",
+          "minLength": 1,
+          "description": "문제 — 지금 무엇이 누구에게 왜 곤란한가. 버그·장애라면 현상, 재현 절차, 기대 동작. 유지보수처럼 문제가 없는 일이라면 '왜 지금 하는가'. goal 은 바라는 결과이고 이것은 그 결과를 바라게 된 이유다. 배경 사실(background)과 섞지 않는다. 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다(옛 양식에서는 문제가 background 에 섞여 있다)."
+        },
+        "goal": {
+          "type": "string",
+          "description": "바라는 결과 — 무엇을 달성해야 하는가. 한두 문단. 왜 하는가는 problem 에, 달성했는지를 가리는 말은 success_criteria 에 쓴다."
+        },
+        "success_criteria": {
+          "description": "식별 가능한 성공 기준 — 사람이 결과를 보고 '됐다/안 됐다' 를 가릴 수 있는 말. 사람이 Intake 의 의도 확인에서 확인한 말 그대로 쓴다. acceptance_criteria 는 이것을 검증 가능한 문장으로 옮긴 것이고, 각 AC 의 covers 가 어느 성공 기준을 옮겼는지를 가리킨다. 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다(그때는 acceptance_criteria 가 유일한 기준이다). id 가 서로 겹치지 않는지는 스키마가 검사하지 않는다.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^S[0-9]+$",
+                "description": "S1, S2 … acceptance_criteria[].covers 가 이 id 를 가리킨다."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "affected": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "영향받는 사람과 시스템 — 이 Task 의 결과로 일하는 방식이 바뀌는 사람, 함께 바뀌어야 하거나 다시 검사되는 시스템·파일·기록(예: 스키마를 바꾸면 그 스키마로 검사되는 옛 기록과 이 Task 자신의 기록). 항목 하나에 대상 하나와 어떻게 영향받는지를 쓴다. target.scope_hint 는 어디를 고칠지의 힌트이고, 이것은 고친 결과가 닿는 곳이다. 빈 배열은 '영향받는 것이 없다고 확인했다'(유지보수의 '동작 불변')이고 그 '없음' 은 검증 대상이다 — AC 로 옮긴다. 필드가 없으면 옛 양식의 기록이거나 살피지 않은 것이다."
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "지켜야 할 제약 (건드리면 안 되는 모듈, 호환성, 일정 등) — 일을 하는 동안 지킬 규칙. 하지 않기로 한 일은 non_goals 에, 일부러 정하지 않은 것은 open_questions 에 쓴다. 옛 양식의 기록에는 그 둘이 '범위 밖 — …', '맡긴 것 — …' 같은 항목으로 여기에 들어 있다."
+        },
+        "non_goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "범위 밖 — 이 Task 에 속한다고 기대할 만하지만 하지 않기로 한 일. Planner 는 Step 을 자를 때 이것을 넘지 않는다. constraints 는 범위 안의 일을 하면서 지킬 규칙이고, 이것은 아예 하지 않는 일이다. 빈 배열은 '범위 밖으로 뺀 것이 없다고 확인했다', 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다."
+        },
+        "open_questions": {
+          "description": "열린 질문 — 발행 시점에 일부러 정하지 않고 남긴 것. 여기에 적힌 것은 '일부러 정하지 않은 것' 이고, 여기에 없는데 정해져 있지 않은 것은 '깜빡한 것' 이다 — 뒤의 역할은 이 구별로 스스로 정해도 되는지를 안다. 사람이 답할 질문은 Task 에 남길 수 없다: Intake 중에 답을 받아 그 답을 해당 칸(constraints, non_goals, success_criteria 등)에 적고 질문은 지운다. 빈 배열은 '열린 질문이 없다고 확인했다', 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text",
+              "answered_by"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^Q[0-9]+$",
+                "description": "Q1, Q2 … Decision 이나 작업 노트가 어느 질문에 답했는지 가리킬 때 쓴다."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "질문. 선택지나 판단 기준이 Intake 에서 나왔으면 함께 적는다."
+              },
+              "answered_by": {
+                "description": "누가 답하는가. planner_or_worker — Planner 나 Worker 에게 맡긴다: 일하면서 스스로 정하고 그 결정과 이유를 자기 출력(Decision 의 rationale, 작업 노트)에 남긴다. investigation_step — 정하기 전에 확인이 필요하다: Planner 가 조사 Step 을 두어 확인한다. 사람을 뜻하는 값은 일부러 두지 않았다 — 의도 확인 단계에서는 '사람이 Intake 중에 답함' 도 담당자의 하나지만, 그것이 남아 있는 동안은 발행하지 않는다. 그래서 그런 값(human 등)은 없는 값과 똑같이 스키마 검증에서 거부되고, 발행(createTask)도 거부된다.",
+                "enum": [
+                  "planner_or_worker",
+                  "investigation_step",
+                  "human"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "type",
+        "goal",
+        "acceptance_criteria",
+        "target"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "description": "Task 의 성격. Planner 가 Step 구성을 판단할 때 참고한다.",
+          "enum": [
+            "feature",
+            "bugfix",
+            "research",
+            "other"
+          ]
+        },
+        "goal": {
+          "type": "string",
+          "description": "바라는 결과 — 무엇을 달성해야 하는가. 한두 문단. 왜 하는가는 problem 에, 달성했는지를 가리는 말은 success_criteria 에 쓴다."
+        },
+        "problem": {
+          "type": "string",
+          "minLength": 1,
+          "description": "문제 — 지금 무엇이 누구에게 왜 곤란한가. 버그·장애라면 현상, 재현 절차, 기대 동작. 유지보수처럼 문제가 없는 일이라면 '왜 지금 하는가'. goal 은 바라는 결과이고 이것은 그 결과를 바라게 된 이유다. 배경 사실(background)과 섞지 않는다. 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다(옛 양식에서는 문제가 background 에 섞여 있다)."
+        },
+        "background": {
+          "type": "string",
+          "description": "배경 — problem 과 goal 을 이해하는 데 필요한 사실. 이미 있는 것, 지난 경과, 출처, Intake 대화에서 확인된 사실 가운데 다른 칸에 속하지 않는 것. 문제는 problem 에, 영향받는 사람과 시스템은 affected 에, 하지 않기로 한 일은 non_goals 에 쓴다. 옛 양식의 기록에는 그것들이 여기에 섞여 있다."
+        },
+        "success_criteria": {
+          "description": "식별 가능한 성공 기준 — 사람이 결과를 보고 '됐다/안 됐다' 를 가릴 수 있는 말. 사람이 Intake 의 의도 확인에서 확인한 말 그대로 쓴다. acceptance_criteria 는 이것을 검증 가능한 문장으로 옮긴 것이고, 각 AC 의 covers 가 어느 성공 기준을 옮겼는지를 가리킨다. 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다(그때는 acceptance_criteria 가 유일한 기준이다). id 가 서로 겹치지 않는지는 스키마가 검사하지 않는다.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^S[0-9]+$",
+                "description": "S1, S2 … acceptance_criteria[].covers 가 이 id 를 가리킨다."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "affected": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "영향받는 사람과 시스템 — 이 Task 의 결과로 일하는 방식이 바뀌는 사람, 함께 바뀌어야 하거나 다시 검사되는 시스템·파일·기록(예: 스키마를 바꾸면 그 스키마로 검사되는 옛 기록과 이 Task 자신의 기록). 항목 하나에 대상 하나와 어떻게 영향받는지를 쓴다. target.scope_hint 는 어디를 고칠지의 힌트이고, 이것은 고친 결과가 닿는 곳이다. 빈 배열은 '영향받는 것이 없다고 확인했다'(유지보수의 '동작 불변')이고 그 '없음' 은 검증 대상이다 — AC 로 옮긴다. 필드가 없으면 옛 양식의 기록이거나 살피지 않은 것이다."
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "지켜야 할 제약 (건드리면 안 되는 모듈, 호환성, 일정 등) — 일을 하는 동안 지킬 규칙. 하지 않기로 한 일은 non_goals 에, 일부러 정하지 않은 것은 open_questions 에 쓴다. 옛 양식의 기록에는 그 둘이 '범위 밖 — …', '맡긴 것 — …' 같은 항목으로 여기에 들어 있다."
+        },
+        "non_goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "범위 밖 — 이 Task 에 속한다고 기대할 만하지만 하지 않기로 한 일. Planner 는 Step 을 자를 때 이것을 넘지 않는다. constraints 는 범위 안의 일을 하면서 지킬 규칙이고, 이것은 아예 하지 않는 일이다. 빈 배열은 '범위 밖으로 뺀 것이 없다고 확인했다', 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다."
+        },
+        "open_questions": {
+          "description": "열린 질문 — 발행 시점에 일부러 정하지 않고 남긴 것. 여기에 적힌 것은 '일부러 정하지 않은 것' 이고, 여기에 없는데 정해져 있지 않은 것은 '깜빡한 것' 이다 — 뒤의 역할은 이 구별로 스스로 정해도 되는지를 안다. 사람이 답할 질문은 Task 에 남길 수 없다: Intake 중에 답을 받아 그 답을 해당 칸(constraints, non_goals, success_criteria 등)에 적고 질문은 지운다. 빈 배열은 '열린 질문이 없다고 확인했다', 필드가 없으면 옛 양식의 기록이거나 적지 않은 것이다.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text",
+              "answered_by"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^Q[0-9]+$",
+                "description": "Q1, Q2 … Decision 이나 작업 노트가 어느 질문에 답했는지 가리킬 때 쓴다."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "질문. 선택지나 판단 기준이 Intake 에서 나왔으면 함께 적는다."
+              },
+              "answered_by": {
+                "description": "누가 답하는가. planner_or_worker — Planner 나 Worker 에게 맡긴다: 일하면서 스스로 정하고 그 결정과 이유를 자기 출력(Decision 의 rationale, 작업 노트)에 남긴다. investigation_step — 정하기 전에 확인이 필요하다: Planner 가 조사 Step 을 두어 확인한다. 사람을 뜻하는 값은 일부러 두지 않았다 — 의도 확인 단계에서는 '사람이 Intake 중에 답함' 도 담당자의 하나지만, 그것이 남아 있는 동안은 발행하지 않는다. 그래서 그런 값(human 등)은 없는 값과 똑같이 스키마 검증에서 거부되고, 발행(createTask)도 거부된다.",
+                "enum": [
+                  "planner_or_worker",
+                  "investigation_step"
+                ]
+              }
+            }
+          }
+        },
+        "acceptance_criteria": {
+          "description": "수용 기준(AC) — success_criteria 를 검증 가능한 문장으로 옮긴 것. Planner 의 done 결정은 이 항목별 충족 근거를 제시해야 한다. 실행 중 요구사항 추가 시 항목이 늘어난다. success_criteria 가 없는 옛 양식의 기록에서는 이것이 Task 의 유일한 성공 기준이다.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^AC[0-9]+$"
+              },
+              "text": {
+                "type": "string"
+              },
+              "covers": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^S[0-9]+$"
+                },
+                "description": "이 AC 가 옮긴 성공 기준의 id 들(success_criteria[].id). 한 성공 기준을 여러 AC 가 옮길 수 있고(여러 AC 가 같은 id 를 적는다), 한 AC 가 여러 성공 기준을 옮길 수 있다. 빈 배열은 '어느 성공 기준도 옮긴 것이 아니다' 를 확인한 것이다(예: typecheck 와 테스트 통과 같은 전체의 바닥). 필드가 없으면 대응을 적지 않은 것이다(옛 양식의 기록). 스키마는 id 의 모양만 검사한다 — 가리킨 id 가 success_criteria 에 실제로 있는지, 모든 성공 기준이 어떤 AC 로든 옮겨졌는지는 검사하지 않는다(Intake 와 사람의 확인이 본다)."
+              },
+              "added_by": {
+                "type": "string",
+                "description": "최초 발행 이후 추가된 경우, 근거가 된 Feedback ID."
+              }
+            }
+          }
+        },
+        "target": {
+          "description": "대상 repo 와 작업 branch. Task 하나는 repo 하나만 대상으로 한다 (ADR-0008). 로컬 경로를 저장하지 않는다.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repo"
+          ],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "devflow-data/projects.yaml 에 등록된 프로젝트 이름."
+            },
+            "base_branch": {
+              "type": "string",
+              "minLength": 1,
+              "description": "발행 때 확정한 branch 이름. 입력 생략 시 원격 HEAD에서 조회한다. 시작 SHA는 최초 Workspace 준비 때 고정한다."
+            },
+            "base_source": {
+              "enum": [
+                "remote",
+                "local"
+              ],
+              "description": "기준 branch의 출처. 새 Task는 생략 시 remote로 기록한다. 필드 없는 옛 기록은 출처 미확정이며 자동 Workspace 준비를 거부한다."
+            },
+            "scope_hint": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "관련 디렉터리/모듈 힌트 (repo 상대 경로)."
+            }
+          }
+        },
+        "limits": {
+          "description": "안전장치. 초과 시 시스템이 자동으로 ask_human 으로 넘긴다.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_steps": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_rework_per_step": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "intent"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "intent"
+        ],
+        "not": {
+          "required": [
+            "definition"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "definition"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "definition"
+        ],
+        "not": {
+          "required": [
+            "intent"
+          ]
+        }
+      }
+    }
+  ]
+}

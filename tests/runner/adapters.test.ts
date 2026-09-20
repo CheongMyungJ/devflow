@@ -17,6 +17,7 @@ import { event, step } from '../store/records.js';
 import { BUILD_DIR, REPO_ROOT } from '../store/paths.js';
 import { runGit } from '../workspace/helpers.js';
 import { ready, terminal, until } from './helpers.js';
+import { sendExecutionMessage } from '../../src/commands/execution-control.js';
 
 const collectWorker = (ctx: Parameters<typeof collect>[0], input: { taskId: string; runId: string }) => collect(ctx, { taskId: input.taskId, runId: input.runId });
 const adapters = [['claude-code', ClaudeCodeRunner], ['codex', CodexRunner], ['opencode', OpenCodeRunner]] as const;
@@ -95,6 +96,57 @@ describe.each(adapters)('%s controlled CLI contract (no model calls)', (backend,
     const s = local(); const runner = new Adapter(join(s.root, 'runner'), { command: join(s.root, 'missing-executable') });
     await runner.prepare(s.request); await runner.submit(s.request);
     expect(await until(() => runner.inspect(s.request.key), terminal)).toMatchObject({ state: 'failed', kind: 'process_exit' });
+  });
+
+  it('retries malformed output only after exit, preserving local evidence', async () => {
+    const s = local({ invalidFirst: true });
+    s.request.output_retries = 1;
+    await s.runner.prepare(s.request); await s.runner.submit(s.request);
+    expect(await until(() => s.runner.inspect(s.request.key), terminal)).toMatchObject({ state: 'completed', outputAttempts: 2 });
+    expect(readFileSync(join(s.dir, 'invalid-output-1.json'), 'utf8')).toBe('not JSON');
+    expect(existsSync(join(s.dir, 'invocation-2.json'))).toBe(true);
+  });
+
+  it('accepts read roles with an explicit output contract and restricted workspace writes', async () => {
+    const output = JSON.stringify({ after_step: null, action: 'ask_human', rationale: 'Review scope', question: { text: 'Which scope?' }, packet_gaps: [] });
+    const s = local({ output }); s.request.role = 'planner'; s.request.access = 'read';
+    await s.runner.prepare(s.request); await s.runner.submit(s.request);
+    expect(await until(() => s.runner.inspect(s.request.key), terminal)).toMatchObject({ state: 'completed' });
+    const seen = JSON.parse(readFileSync(join(s.dir, 'invocation.json'), 'utf8'));
+    expect(seen.stdin).toContain('devflow/step.schema.json');
+    expect(seen.stdin).toContain('Read-only role');
+    if (backend === 'claude-code') expect(seen.args).toEqual(expect.arrayContaining(['--tools', 'Read,Glob,Grep,Write', '--disallowedTools']));
+    if (backend === 'codex') {
+      expect(seen.args).toContain('default_permissions="devflow_read"');
+      expect(seen.args).not.toContain('--sandbox');
+    }
+    if (backend === 'opencode') expect(JSON.parse(seen.config).permission.edit['*']).toBe('deny');
+  });
+
+  it('records human messages before delivery, with one message per ID', async () => {
+    const s = await managed({ waitMessage: backend === 'claude-code', delayMs: 800 });
+    const first = await submitWorker(s.ctx, s.input);
+    const messageId = randomUUID(), text = '질문 대신 변경된 기준을 확인해 주세요';
+    const message = { taskId: s.task.id, runId: first.run.id, messageId, text };
+    if (backend !== 'claude-code') {
+      await expect(sendExecutionMessage(s.ctx, message)).rejects.toThrow(/does not support/);
+      expect((await s.store.readEvents(s.task.id)).filter(e => e.type === 'run.message_sent')).toHaveLength(0);
+    } else {
+      const original = s.runner.message.bind(s.runner);
+      s.runner.message = async (key, input) => {
+        expect((await s.store.readEvents(s.task.id)).filter(e => e.type === 'run.message_sent')).toEqual([expect.objectContaining({ data: expect.objectContaining({ text, request_id: messageId }) })]);
+        return original(key, input);
+      };
+      await sendExecutionMessage(s.ctx, message);
+      expect(await until(() => sendExecutionMessage(s.ctx, message), result => result.delivered)).toMatchObject({ delivered: true });
+      await expect(sendExecutionMessage(s.ctx, { ...message, text: 'different' })).rejects.toThrow(/different text/);
+    }
+    await until(() => s.runner.inspect(executionKey(first.run)), terminal);
+    if (backend === 'claude-code') {
+      const dir = join(s.runnerDir, s.task.id, first.run.id, first.run.execution!.id);
+      expect(JSON.parse(readFileSync(join(dir, 'observed-message.json'), 'utf8')).message.content).toBe(text);
+      expect((await s.runner.logs(executionKey(first.run))).text).toContain('fixture-session');
+    }
   });
 
   it('preserves commit/staged/unstaged/untracked files and collects exactly once', async () => {

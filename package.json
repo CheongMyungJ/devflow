@@ -32,7 +32,8 @@
     "pretypecheck": "npm run gen",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run gen",
-    "test": "vitest run"
+    "test": "vitest run",
+    "execution": "node scripts/execution.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

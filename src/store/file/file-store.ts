@@ -41,6 +41,7 @@ import { codeOf, type FileOps, nodeFileOps, retryTransient, sleep } from './fs-o
 import { blobRelPath, issuedNumberOf, type Loc, locOfRel, relOfLoc, TASK_DIR } from './layout.js';
 import { LOCKS_DIR, PENDING_PREFIX, ROLLBACKS_FILE } from './names.mjs';
 import { LockManager } from './lock.js';
+import { FileIntakeRepository } from './intake.js';
 
 export interface FileStoreOptions {
   dataDir: string;
@@ -313,6 +314,7 @@ function seqOf(text: string): number | undefined {
 }
 
 export class FileStore implements Store {
+  readonly intake: FileIntakeRepository;
   private readonly dataDir: string;
   private readonly ops: FileOps;
   private readonly locks: LockManager;
@@ -326,6 +328,7 @@ export class FileStore implements Store {
       timeoutMs: options.lockTimeoutMs ?? 5000,
       transientRetryMs: this.transientRetryMs,
     });
+    this.intake = new FileIntakeRepository(this.dataDir, this.ops, this.locks);
   }
 
   // ---------------------------------------------------------------- 쓰기

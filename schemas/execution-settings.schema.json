@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/execution-settings.schema.json",
+  "title": "ExecutionSettings",
+  "description": "역할 실행 옵션. 상위 계층의 backend가 바뀌면 상속 model/reasoning을 지운다. null은 모델/추론 수준을 백엔드 기본값으로 되돌린다.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "enum": [
+        "fake",
+        "claude-code",
+        "codex",
+        "opencode"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "pattern": "^[^\\s\\x00-\\x1f][^\\x00-\\x1f]*$"
+    },
+    "reasoning": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400,
+      "description": "실제 프로세스 시작 뒤 실행 제한 시간. 종료 요청과 종료 확인은 별개다."
+    },
+    "isolation": {
+      "enum": [
+        "project",
+        "strict"
+      ],
+      "description": "project는 프로젝트 지침을 유지하며 사용자 설정 유입을 제한한다. strict는 백엔드가 추가 격리를 지원할 때만 허용한다."
+    },
+    "output_retries": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2,
+      "description": "종료가 확인된 스키마 위반에 한해 허용할 새 출력 시도 수. 기본 0."
+    }
+  }
+}

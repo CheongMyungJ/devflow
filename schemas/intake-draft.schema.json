@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/intake-draft.schema.json",
+  "title": "IntakeDraft",
+  "description": "Task 발행 전의 복구 가능한 Intake 기록. 매 revision은 불변이며 사건과 실행을 함께 보관한다. 로컬 경로는 넣지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "revision",
+    "phase",
+    "turns",
+    "events"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^I-[0-9a-f-]{36}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "phase": {
+      "enum": [
+        "intent",
+        "definition",
+        "publishing",
+        "issued"
+      ]
+    },
+    "confirmed_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "intent"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "intent": {
+          "$ref": "intake-output.schema.json#/properties/intent"
+        }
+      }
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^T-[0-9]{4,}$"
+    },
+    "turns": {
+      "type": "array",
+      "items": {
+        "title": "IntakeTurn",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "execution_id",
+          "phase",
+          "status",
+          "input",
+          "settings",
+          "context",
+          "submitted_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^R-[0-9]{3,}$"
+          },
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phase": {
+            "enum": [
+              "intent",
+              "definition"
+            ]
+          },
+          "status": {
+            "enum": [
+              "submitted",
+              "completed",
+              "failed"
+            ]
+          },
+          "input": {
+            "$ref": "role-execution-input.schema.json"
+          },
+          "settings": {
+            "$ref": "resolved-execution-settings.schema.json"
+          },
+          "context": {
+            "type": "string"
+          },
+          "output": {
+            "$ref": "intake-output.schema.json"
+          },
+          "failure": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "actor",
+          "at"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "created",
+              "submitted",
+              "collected",
+              "intent_confirmed",
+              "message",
+                "publish_requested",
+                "publish_rejected",
+              "issued",
+              "cancel_requested"
+            ]
+          },
+          "actor": {
+            "type": "string",
+            "pattern": "^(human:.+|system)$"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "text": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

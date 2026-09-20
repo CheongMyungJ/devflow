@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/execution-config.schema.json",
+  "title": "ExecutionConfig",
+  "description": "전역 또는 프로젝트의 역할 실행 정책. 경로·인증 정보는 포함하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaults": {
+      "$ref": "execution-settings.schema.json"
+    },
+    "roles": {
+      "$ref": "#/$defs/roles"
+    },
+    "task_types": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/roles"
+      }
+    }
+  },
+  "$defs": {
+    "roles": {
+      "title": "RoleExecutionSettings",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intake": {
+          "$ref": "execution-settings.schema.json"
+        },
+        "planner": {
+          "$ref": "execution-settings.schema.json"
+        },
+        "worker": {
+          "$ref": "execution-settings.schema.json"
+        },
+        "reviewer": {
+          "$ref": "execution-settings.schema.json"
+        }
+      }
+    }
+  }
+}

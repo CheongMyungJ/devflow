@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, access } from 'node:fs/promises';
+import { mkdir, access, readFile } from 'node:fs/promises';
 import { resolve, join, isAbsolute, relative, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
@@ -34,11 +34,12 @@ async function live(port: number, token: string): Promise<boolean> {
 export class LocalRunner implements Runner {
   get id() { return this.adapter.id; }
   get version() { return this.adapter.version; }
-  readonly capabilities = { supportsResume: false, supportsLiveMessage: false, supportsStream: false, supportsCancel: false } as const;
+  get capabilities() { return { supportsResume: this.adapter.capabilities?.supportsResume ?? false,
+    supportsLiveMessage: this.adapter.capabilities?.supportsLiveMessage ?? false, supportsStream: true, supportsCancel: true }; }
   private readonly root: string;
   constructor(root: string, private readonly adapter: LocalAdapter) { this.root = resolve(root); }
   private dir(key: ExecutionKey): string {
-    if (!/^T-[0-9]{4,}$/.test(key.taskId) || !/^R-[0-9]{3,}$/.test(key.runId) || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(key.executionId)) throw new ExecutionError('invalid execution identity');
+    if (!/^(T-[0-9]{4,}|I-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(key.taskId) || !/^R-[0-9]{3,}$/.test(key.runId) || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(key.executionId)) throw new ExecutionError('invalid execution identity');
     return join(this.root, key.taskId, key.runId, key.executionId);
   }
   private validate(request: RunRequest): void {
@@ -46,7 +47,7 @@ export class LocalRunner implements Runner {
     if (!isAbsolute(request.workdir)) throw new ExecutionError('Workspace workdir must be absolute');
     const rel = relative(request.workdir, this.root);
     if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) throw new ExecutionError('runner-dir must be outside the Task worktree');
-    if (request.role !== 'worker' || request.access !== 'write') throw new ExecutionError('supports only worker/write; read isolation, resume, messages, stream and cancel are unsupported');
+    if ((request.role === 'worker') !== (request.access === 'write')) throw new ExecutionError('unsupported role/access combination: Worker is write; other roles are read');
     if ((request.backend ?? 'fake') !== this.id) throw new ExecutionError('Runner backend mismatch');
     this.adapter.validate?.(request);
   }
@@ -123,5 +124,45 @@ export class LocalRunner implements Runner {
     if (!schemas.validator('runner-local-result')(result)) return unknown('invalid terminal receipt');
     if (!isDeepStrictEqual(result.key, key)) return unknown('result identity mismatch');
     return result.outcome;
+  }
+  async cancel(key: ExecutionKey): Promise<ExecutionState> {
+    const state = await this.inspect(key);
+    if (state.state !== 'running' && state.state !== 'prepared') return state;
+    const dir = this.dir(key);
+    if (!await readJson(dir, 'cancel.json')) {
+      try { await publish(dir, 'cancel.json', { executionId: key.executionId }); }
+      catch { if (!await readJson(dir, 'cancel.json')) throw new ExecutionError('cancel request was not recorded'); }
+    }
+    return this.inspect(key);
+  }
+  async intakeWorkspace(id: string, create = true): Promise<string> {
+    if (!/^I-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) throw new ExecutionError('invalid Intake ID');
+    const dir = join(this.root, 'intake-workspaces', id);
+    if (create) await mkdir(dir, { recursive: true });
+    return dir;
+  }
+  async message(key: ExecutionKey, input: { id: string; text: string }) {
+    if (!this.capabilities.supportsLiveMessage) return { delivered: false, reason: 'Backend does not support live messages; cancel and start a follow-up Run after confirmed exit.' };
+    if (!/^[0-9a-f-]{36}$/.test(input.id) || !input.text.trim() || input.text.length > 100000) throw new ExecutionError('invalid message');
+    const dir = this.dir(key);
+    const request = await readJson(dir, 'request.json') as RunRequest | undefined;
+    if (request?.role === 'reviewer') throw new ExecutionError('Reviewer input is immutable');
+    const receipt = await readJson(dir, `message-${input.id}.receipt.json`) as { delivered: boolean; reason?: string } | undefined;
+    if (receipt) return receipt;
+    const state = await this.inspect(key);
+    if (state.state !== 'running') return { delivered: false, reason: `execution is ${state.state}` };
+    const name = `message-${input.id}.json`;
+    const saved = await readJson(dir, name);
+    if (saved && !isDeepStrictEqual(saved, input)) throw new ExecutionError('message ID already has different text');
+    if (!saved) await publish(dir, name, input);
+    return { delivered: false, reason: 'queued; repeat the same message ID to inspect delivery' };
+  }
+  async logs(key: ExecutionKey, input: { offset?: number; limit?: number } = {}) {
+    const offset = input.offset ?? 0, limit = input.limit ?? 32768;
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1048576) throw new ExecutionError('invalid log range');
+    let bytes: Buffer;
+    try { bytes = await readFile(join(this.dir(key), 'transcript.log')); }
+    catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; bytes = Buffer.alloc(0); }
+    return { text: bytes.subarray(offset, offset + limit).toString('utf8'), offset, nextOffset: Math.min(bytes.length, offset + limit), truncated: bytes.length > offset + limit };
   }
 }

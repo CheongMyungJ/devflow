@@ -21,13 +21,15 @@
 | 복구 가능한 fake Worker | `46c0749d34c251fde7b3abe5064ce62bd0a3a951`, [PR #2](https://github.com/CheongMyungJ/devflow/pull/2) | main 병합 완료 |
 | 세 실제 Worker 어댑터 | `b2cdab8c1e833245bfc3bb74688269d4c9f984af`, [PR #3](https://github.com/CheongMyungJ/devflow/pull/3) | main 병합 완료, merge commit `4239ab3428df8b8345c4606909d84182cebb6566` |
 
-문서 통합 시 확인한 로컬 checkout은 `codex/real-worker-runners`의 `b2cdab8`이다. PR 병합 확인과 로컬 main 갱신은 별개다.
+문서 통합 당시 checkout은 `codex/real-worker-runners`의 `b2cdab8`이었다. 이번 R01·R02 작업은 main `21ec52f`에서 만든 `codex/role-settings-and-execution`의 변경이다. 기존 PR의 main 반영과 이번 변경은 구별하며, 이번 브랜치의 병합 여부는 Git과 PR에서 다시 확인한다.
 
-- 마지막 코드 검증: Windows, Node.js 22.15.1, `npm run typecheck` 통과, `npm test` **46개 파일·678개 통과**. 문서 통합을 위해 모델 호출을 다시 실행하지 않았다.
+- 이전 병합 기준 검증: Windows, Node.js 22.15.1, `npm run typecheck` 통과, `npm test` **46개 파일·678개 통과**.
+- 이번 변경 검증: Windows / Node.js 22.15.1, `npm run typecheck` 통과, `npm test` **49개 파일·707개 통과**. 새 테스트는 설정 계층/고정 입력, Planner·Reviewer, 읽기 위반·검토 버전, 취소/timeout, 메시지 기록 순서, 출력 재시도와 Intake 발행/복구, 공통 실행 CLI를 포함한다.
 - **대역 계약 테스트**: fake 회귀와 세 CLI 어댑터의 인자·입력·cwd·model, 정상/지연/비정상 종료, JSON/스키마 위반, 실행 파일 부재, 호출자 강제 종료 후 회수, 중복 제출/수집, unknown, Task 간 같은 Run ID, 기존 Git 변경 보존. 실제 Git으로 종료 SHA 확정도 검사했다.
 - **실제 모델 실행**: Claude Code **2.1.278**(sonnet 요청), Codex **0.154.0**(CLI 기본 모델)을 각 1세션 실행했다. 임시 대상 repo·Task Workspace·테스트 Store에서 작은 파일 생성, 실제 cwd, 출력 파일 검증, 실행 중 호출자 SIGKILL 후 회수, Run/Artifact 기록과 반복 수집을 확인했다. 실제 세션의 Artifact는 보고 문서이며, 코드 commit SHA 확정은 위의 Git+대역 테스트로 검증했다. 이 2회는 678개 테스트 수에 포함하지 않는다.
 - **실제 OpenCode 연동은 미검증**이다. 어댑터와 대역 계약 테스트는 완료했으나 설치된 CLI/실제 모델 호출은 검증하지 않았다. 다른 OS·모든 모델/CLI 버전·임의 명령의 권한 허용까지 확인한 것은 아니다.
-- 재현 방법·CLI 호환성·실행 옵션의 근거는 [Runner 계약](design/runner.md), 사용 예는 [수동 운영 절차](stage0-manual-operation.md)를 따른다.
+- 이번 실제 연동: Codex **0.154.0**과 Claude Code **2.1.278**에서 각 Worker → 독립 신규 Reviewer를 검증했다(정상 모델 세션 4회, 테스트 개수와 별개). 임시 repo에서 파일 생성, 호출자 종료 후 회수, 문서 Artifact의 실제 내용 전달, 읽기 역할 출력 파일 접근·workspace 보존·Gate 기록을 확인했다. 초기 Codex 실행의 Windows sandbox 설정 누락과 Claude bare 모드의 기존 로그인 미사용을 발견해 각각 명시적 Windows sandbox, safe-mode로 수정했다. 초기 실패 실행은 성공 검증에 포함하지 않는다.
+- 재현 방법·CLI 호환성·실행 옵션의 근거는 [Runner 계약](design/runner.md), 새 운영 입구는 [역할 실행 사용법](execution-usage.md), 기존 입구는 [수동 운영 절차](stage0-manual-operation.md)를 따른다.
 
 ### 완료된 기반과 남은 경계
 
@@ -35,14 +37,14 @@
 |---|---|---|---|
 | 스키마·타입·역할 계약 | 부분 완료 | 스키마 로더, 생성 타입, Task 의도/2단계 Intake, 역할 출력·packet_gaps·수행 주체·참조 문법 | 잔여 의미 검사와 계약 정합은 R09·R10 |
 | State Store | 완료 — 파일 기반 최소 계약 | 7종 엔티티, blob, ID/버전 발급, 불변 기록, append-only 이벤트, commit 식별자와 장애 복구 | 교차 Task 조회·운영/OS 확장·DB 중립성 실증은 R07·R11·4단계 |
-| commands/queries·운영 입구 | 부분 완료 | Task 발행/done, Step 제안/확정, Run 제출/완료/실패, Gate 기록, Feedback/승인/재작업, Workspace·Worker 입구 | Gate **실행**과 전체 조율, 취소·Intake 완료, 제품 CLI는 R02·R05~R07 |
+| commands/queries·운영 입구 | 부분 완료 | 기존 명령과 네 역할 실행·상태·수집·취소·로그·지원 backend 메시지, 두 단계 Intake 발행 | deterministic Gate 실행과 전체 조율, 제품 CLI는 R05~R07 |
 | Workspace | 부분 완료 | 프로젝트 등록부 스키마/조회 시 검사, 머신별 clone/worktree 설정, Task worktree 준비·조회, 기준 SHA 고정, 단계 경계 복구 | 안전한 정리·base 이동·읽기 참조 checkout·의존성 준비는 R08 |
-| Worker Runner | 완료 — 신규 Worker/write | fake·Claude Code·Codex·OpenCode 어댑터와 공통 로컬 실행 관리, 출력 파일 검증, 멱등 수집, `workspace:code` 종료 SHA 검증 | 다른 역할·read 격리·취소/timeout·resume·메시지·transcript는 R02 |
-| 역할별 실행 설정 | 부분 완료 | Worker 입력/CLI에서 backend 선택, 입력의 model 전달·일치 검사. backend 생략은 기존 fake와 호환 | 네 역할의 설정 파일, 전역/프로젝트 계층, 추론 수준은 R01 |
-| Context·Ledger·검토 자료 | 미구현 — 자동화 | 수동 패킷·Ledger·독립 역할 운영 경험과 입력 참조 문법은 있음 | 자동 조립·Feedback 우선순위·후속 후보·사람용 렌더링은 R03·R04·R07 |
+| 역할 Runner | 이번 합의 범위 구현 | 네 역할 신규 실행, read 사후검사와 CLI 제한, 취소/timeout, 출력 재시도, 메시지·로그·세션 ID, 기존 복구 계약 | resume와 제품 attach, 엄격한 OS/전체 환경 격리, OpenCode 실제 연동은 R02 후속 |
+| 역할별 실행 설정 | 완료 — R01 | 네 역할 backend/model/reasoning, 전역·프로젝트·작업 유형·Step·명시 입력, 실효값/출처 고정, 미지원 옵션 거부 | 모델 품질·비용 정책과 접근 권한/CLI 전체 버전의 호환성은 별도 |
+| Context·Ledger·검토 자료 | 부분 완료 | 제출 시 최소 Context 고정, Worker 이전 노트·Artifact·Gate·Feedback, Reviewer 문서 내용·코드 버전 확인 | 선언된 입력의 전체 해석·Feedback 우선순위·Ledger·후속 후보·사람용 렌더링은 R03·R04·R07 |
 | Gate·Orchestrator | 미구현 — 실행 루프 | GateResult 기록과 상태 전이 command는 있음 | deterministic 실행+Reviewer, 멱등 `advance()`는 R05·R06 |
 
-**지금 할 수 있는 일:** 사람이 Task/Step과 입력을 준비하고 Workspace를 마련한 뒤, backend를 명시해 Worker 신규 세션을 제출하고 나중에 결과를 수집한다. prompt/Context는 호출자가 제공한다. 시스템이 Intake부터 done까지 스스로 연결하지는 않는다.
+**지금 할 수 있는 일:** 설정 파일을 적용해 Intake 초안과 두 확인을 거쳐 Task를 발행하고, 준비한 Workspace에서 Planner·Worker·Reviewer를 개별 실행·관찰·수집한다. 사람은 지원 backend에 기록된 메시지를 보내고 실행을 취소하거나 로그를 확인할 수 있다. prompt는 호출자가 제공하고 최소 Context는 시스템이 고정한다. Intake부터 done까지 역할을 자동으로 연결하는 기능은 아직 없다.
 
 **복구 경계:** 공유 `Run.status`는 수집 전까지 `submitted`, 실제 관찰 상태는 `execution.state`다. 종료 결과 없이 출력만 생긴 경우, 시작 표식만 남은 경우, supervisor 유실·로컬 기록 손상은 완료/실패로 추측하지 않고 `unknown`으로 둔다. 살아 있는 supervisor가 결과를 게시하면 같은 실행을 회수한다. 그렇지 않으면 사람이 기존 프로세스와 변경을 확인해야 한다. 시작 표식·잠금 삭제나 자동 대체 실행으로 덮지 않는다([ADR-0019](adr/0019-recoverable-worker-execution.md), [ADR-0020](adr/0020-local-cli-worker-adapters.md)).
 
@@ -52,12 +54,12 @@
 
 ## 다음 작업 순서
 
-아래 순서는 권고이며 아직 새 Task를 발행한 것이 아니다. **우선 추천은 R01: 네 역할의 실행 설정**이다. 설정 지원과 네 역할의 실제 실행 지원은 구별한다.
+R01과 R02의 이번 합의 범위를 함께 구현했다. **다음 사용자 요청은 역할별 HITL의 승인·수정 요청과 독립 질문 CLI**다. R03의 재작업 Context, R05·R06의 필요한 조율과 R07의 사용자 입구를 연결한다. 구체적인 합의와 현재 코드의 제약은 [새 세션용 작업 프롬프트](handoff-hitl.md)에 정리했다. 아래 표는 기반 항목의 의존 관계이며 새 Task 발행을 뜻하지 않는다.
 
 | 순서 | 후보 | 이번에 해결할 중심 | 선행 조건·분리할 범위 |
 |---|---|---|---|
-| 1 | [R01 역할별 실행 설정](#r01) | Intake·Planner·Worker·Reviewer의 backend/model/추론 수준, 전역/프로젝트 설정과 실효값 확정 | 기존 Worker부터 연결하되 다른 역할 설정도 수용·검사. 역할 실행 자체는 R02 |
-| 2 | [R02 역할 실행·격리](#r02), [R03 Context·재작업](#r03) | 읽기 역할을 실행할 계약과 충분한 새 세션 입력 | read·환경 격리와 입력 계약을 먼저 좁혀 구현. resume/attach까지 한 번에 묶지 않음 |
+| 완료 범위 | [R01 역할별 실행 설정](#r01), [R02 역할 실행·격리](#r02) | 네 역할 설정·신규 실행과 실행 수명 | resume·제품 attach와 엄격한 환경 격리는 후속 |
+| 1 | [R03 Context·재작업](#r03) | 새 세션이 승인된 기준·수정 요청·이전 검증을 빠짐없이 이해 | 이번 최소 패킷을 확장하되 resume 성공을 전제로 하지 않음 |
 | 3 | [R04 Ledger·후속 후보](#r04), [R07 검토 자료](#r07) | 기록 누락 없이 다음 판단과 사람 검토에 필요한 재료 | Ledger 작성 방식·출력 필드 판단은 advance 전에. GitHub 발행은 뒤로 |
 | 4 | [R05 Gate](#r05) → [R06 advance](#r06) → [R07 제품 CLI](#r07) | 작은 Task 한 바퀴를 멱등하게 연결 | 처음부터 모든 대화형 명령·정책을 구현하지 않고 수직으로 작은 흐름 검증 |
 | 병행 후보 | [R08 Workspace](#r08)·[R09 계약 정합](#r09)·[R10 지침](#r10)·[R11 운영 검증](#r11) | 선택한 기능을 실제로 막는 항목 또는 독립적인 작은 결함 | 잔여 스키마 전부를 먼저 한 묶음으로 고치지는 않음 |
@@ -69,34 +71,32 @@
 <a id="r01"></a>
 ### R01. 네 역할의 backend·model·추론 수준 설정
 
-**상태: 부분 완료 / 우선 추천.** 출처: T-0004 설정 요청, ADR-0010, 2026-09-20 사용자 재확인.
+**상태: 완료 — 이번 브랜치에서 구현.** 출처: T-0004 설정 요청, ADR-0010, 2026-09-20 사용자 재확인. 결정: [ADR-0021](adr/0021-role-settings-and-managed-execution.md).
 
 - **사용자 방향:** Worker, Reviewer, Planner, Intake 모두 설정할 수 있어야 한다. backend·model·추론 수준을 지정하며, 전역 기본값과 프로젝트별 설정으로 확장할 수 있어야 한다. 작업 유형별 지정도 기존 요청에 포함된다.
-- 현재는 Worker의 명시적 backend/model만 있다. 전역/프로젝트 역할 설정과 reasoning 입력·기록은 없다. 머신별 Workspace 경로 설정은 역할 실행 설정과 목적이 다르다.
-- **첫 구현 범위 권고:** 네 역할의 설정 스키마·조회·실효값 해석, Worker 연결, 지원하지 않는 backend/model/reasoning 조합의 명시적 거부, 기존 fake/명시 입력 호환. 실행 불가한 역할은 설정 가능하더라도 실행 가능하다고 표시하지 않는다.
-- **미결정:** 설정 파일 위치·키·기본값·우선순위. 명시 실행 옵션 > 프로젝트 역할 설정 > 전역 역할 설정 > 제품 기본값은 후보이며, 기존 제안인 Step > Skill/작업 유형 > 프로젝트 역할 > 시스템 역할과 함께 일관된 규칙을 정한다. freeform Step의 작업 유형 표현, Planner가 유형만 고르고 모델은 정책이 고르는 방식도 미결정이다.
+- **구현:** 네 역할의 설정 스키마·조회·실효값 해석과 실행 연결. 전역 파일은 명시적 `--config` 또는 `DEVFLOW_CONFIG`, 프로젝트는 worktree의 `.devflow.yaml`의 execution이다. 머신별 Workspace 경로 설정과는 분리한다.
+- **확정 순서:** 제품 기본값 → 전역 defaults/역할/작업 유형 → 프로젝트 defaults/역할/작업 유형 → 확정 Step 역할 설정 → 명시 실행 입력. Step의 task_type이 있으면 Task type보다 우선한다. backend 변경 시 상속 model/reasoning은 해제하고 null은 backend 기본값으로 되돌린다.
 - 백엔드별 추론 수준은 지원 범위와 의미가 다를 수 있다. 로컬 CLI 도움말·공식 자료를 확인해 어댑터가 변환/검사한다. 미지원 값을 조용히 무시하지 않는다. 인증·사용자 전역 CLI 설정을 자동 변경하지 않는다.
-- **완료 기준:** 네 역할의 설정 해석과 우선순위 계약 테스트, 잘못된 값/미지원 기능 오류, 기존 Worker 호환, 사용 예. 실제 실행에 적용할 실효값을 제출 때 확정하고 digest·Run의 재현 가능한 기록에 반영한다. 이후 설정 파일 변경이 기존 실행을 바꾸지 않아야 한다. 추론 수준의 새 엔티티 필드는 스키마에서 정의한다.
+- **검증:** 네 역할의 우선순위 계약, 잘못된 값, backend 변경·null 초기화, 기존 Worker 호환, 제출 후 설정 변경의 불변성을 테스트했다. 실효값·출처와 원래 입력/해석된 입력 digest를 함께 기록한다. 사용 예는 [역할 실행 사용법](execution-usage.md)에 있다. OpenCode reasoning은 미검증이므로 오류이며 모든 모델·계정의 접근 가능성을 보장하는 기능은 아니다.
 - Reviewer 사용 여부·깊이, 재작업 시 상위 모델로 변경하는 규칙은 [R06](#r06)의 정책 질문이다. 모델별 품질·비용 우열은 [R13](#r13)의 비교 없이 단정하지 않는다.
 
 <a id="r02"></a>
 ### R02. 다른 역할 실행과 Runner의 나머지 기능
 
-**상태: 부분 완료.** 신규 Worker/write의 복구 계약은 기반으로 유지한다([Runner](design/runner.md), ADR-0010·0019·0020).
+**상태: 이번 합의 범위 완료 / 후속 범위 남음.** 신규 Worker/write의 복구 계약을 유지한다([Runner](design/runner.md), ADR-0010·0019·0020·0021).
 
-- Planner·Reviewer의 신규 read 실행과 역할별 출력 수용을 구현한다. **사용자 방향:** Planner도 해당 Task worktree에서 실행한다. Reviewer는 독립된 새 세션으로 판정한다. Task/Workspace가 생기기 전 Intake의 cwd·대화 수명·Run 완료 계약은 별도로 정한다.
-- read 실행에서 tracked/staged/unstaged/untracked 변경과 ignored 생성물(`node_modules`, 생성 타입 등)의 허용 범위를 정하고 검사한다. 리뷰를 위한 복사 데이터·임시 실험과 원래 Workspace 변경을 구별한다. 변경을 발견해도 자동 reset/삭제하지 않는다.
-- 프로젝트 지침은 필요한 맥락으로 허용하되, 무관한 사용자 전역 설정·메모리·계정 커넥터 유입을 어떤 옵션으로 제한하는지 백엔드마다 검증한다. cwd 변경만으로 격리됐다고 보지 않는다. 현재 어댑터는 기존 CLI/프로젝트 설정의 영향을 받는다.
-- 공통 관리에 timeout·취소·진행 관찰을 추가할 때 프로세스 종료 근거와 상태/이벤트를 정한다. 현재 `supportsResume/LiveMessage/Stream/Cancel`은 모두 false다. 지속 outputDir·raw 로그·호출자 종료 후 회수는 이미 있으므로 다시 만들지 않는다.
-- backend session ID, 실제 프로세스 종료 시각과 수집 시각, CLI 대화 로그와 Run의 연결, 보관 기간·크기·비공개 내용 정책을 정한다. 하위 세션이 생기면 모델·토큰·출처도 관찰할 필요가 있으나 범용 멀티 에이전트 플랫폼으로 확대하지 않는다.
-- 출력 자동 재시도, transcript 정규화, attach/log, 실행 중 메시지는 후속 단위로 분리한다. 사람 메시지는 이벤트를 먼저 기록한 뒤 전달한다(ADR-0006).
-- **사용자 결정:** resume 정책은 resume/개입 기능을 만들 때 논의한다. 기존 수동 resume 1회의 시간·비용은 일반 정책의 근거가 아니다. 실패하면 Context로 새 세션을 시작할 수 있어야 하고, 불명확한 기존 실행을 대체하는 자동 재실행으로 오용하지 않는다.
+- **구현:** Planner·Reviewer는 Task worktree의 신규 read 실행이며, 출력 수집은 기존 Decision/Gate 기록에 연결한다. Reviewer는 특정 Artifact 버전과 문서 원문을 받고, 코드 Artifact의 HEAD·branch·clean 상태는 제출과 실제 시작 시 검사한다. Intake는 빈 전용 cwd와 별도의 버전 기록으로 의도 확인 → 정의 확인 → Task 발행을 수행한다.
+- read 실행은 ignored 파일을 포함한 내용·Git HEAD·index를 시작/종료에 비교하고 변경을 발견하면 invalidated로 수집한다. 변경을 reset/삭제하지 않는다. symlink/junction은 검증 불가로 거부한다. 작업 종료 후 원상복구한 일시적 쓰기나 악의적 프로세스까지 막는 OS 격리는 아니다.
+- 역할 지침·프로젝트 AGENTS.md를 고정해 전달한다. Claude safe-mode와 Codex 사용자 설정/rules/메모리/apps 제한을 적용한다. Codex Windows는 sandbox를 명시한다. 관리자 정책은 유지하며, OpenCode의 전체 환경 격리는 미검증이다. strict 요청은 거부한다.
+- 취소 의도 기록 → supervisor 종료 요청 → 종료 영수증 → 수집을 구현했다. timeout도 종료를 확인한 실패로 구분한다. Task마다 수집 전 관리형 실행은 하나로 제한한다. 로그/정규화 이벤트·backend session ID·실제 종료 시각과 수집 시각을 연결한다.
+- 출력 재시도는 기본 0, 명시한 제한 안에서 종료된 출력 위반에만 적용한다. 로그는 각각 최초 8 MiB 보관, 자동 삭제/공유 Store 복사 없음이다. Claude live 메시지는 이벤트 기록 뒤 ID로 중복을 막아 전달한다. stdin 전달 성공과 모델이 읽은 사실은 구별한다. Reviewer 개입과 Codex/OpenCode live 입력은 미지원이다.
+- **사용자 결정:** resume는 이번 구현에서 제외했다. 모든 역할은 새 세션이며, 불명확한 기존 실행을 자동 대체하지 않는다. **후속:** 제품 attach/HITL 대화 화면, 로그 보관 정책의 운영 확장, 하위 세션의 모델·토큰·출처 추적, 엄격한 환경 격리와 OpenCode 실제 연동.
 - **완료 기준:** 역할별 계약·read 위반·지원 capability·실패/취소/복구 테스트와 기록 일관성. 대역/실제 CLI/실제 모델 검증을 나누어 보고한다. OpenCode 실제 연동은 현재 미검증 상태로 유지하며 별도 범위가 정해지기 전 자동 실행하지 않는다.
 
 <a id="r03"></a>
 ### R03. Context·Feedback·재작업 입력 계약
 
-**상태: 미구현 — 자동 조립.** 출처: T-0002 Feedback 우선순위, T-0004/5 packet_gaps, T-0006 재작업 운영, ADR-0001·0008·0010·0012.
+**상태: 부분 완료 — 최소 패킷만 조립.** 출처: T-0002 Feedback 우선순위, T-0004/5 packet_gaps, T-0006 재작업 운영, ADR-0001·0008·0010·0012·0021. 이번 Worker 재작업 패킷과 Reviewer 버전·문서 원문 전달을 기반으로 아래 잔여 범위를 확장한다.
 
 - Task/Step, 입력 Artifact 버전, Gate, Feedback, Ledger와 원문 패킷을 재현 가능하게 제공한다. 수동 운영은 T-0005부터 패킷 원문 blob을 남기며, 현재 Worker Runner도 명시적 prompt를 로컬 요청에 보관한다. 자동 조립한 패킷의 공유 기록·출처 계약은 남았다. Feedback 원문과 현재 Task의 살아 있는 기록을 가리킬 참조가 필요하다. 과거 `code://devflow-data@<sha>`만으로 이후 기록을 대체하지 않는다.
 - Feedback이 AC/done_when을 바꿨을 때 실효 정의·이력·우선순위를 정한다. “승인하되 다음 Step에서 반드시 수정”을 사람이 쓴 문장에만 두지 않고 전달·이행 여부를 확인할 계약을 정한다.
@@ -135,6 +135,7 @@
 
 - `advance(task_id)`를 여러 번 불러도 같은 진행을 만들고, Store 기록과 외부 프로세스 시작을 원자적으로 가정하지 않는다. 재작업·Step 수·비용 상한을 정한다.
 - `cancelStep`, Task 중단, Run 취소, Intake Run 완료 경로를 구체화한다. Event의 종류별 data 계약(F5)을 관련 전이와 함께 정의한다. 상태 전이는 시스템만 한다.
+- R02에서 관리형 Run 취소와 별도 Intake 완료·발행은 구현했다. 여기서는 Step/Task 전체 중단과 advance에 연결할 정책이 남아 있다.
 - 역할을 생략하거나 사람이/조율 세션이 직접 수정했으면 실제 수행 주체·이유·검사 범위를 기록한다. 수행하지 않은 Planner/Reviewer/Gate를 수행한 것처럼 쓰지 않는다.
 - **사용자 요청, 설계 미결정:** 승인 정책의 Planner 판단 기본/항상 사람 확인/사람 확인 생략 모드, Reviewer 사용 여부·깊이, 작업 유형별 정책과 재작업 시 모델 변경. 현재의 verify 최소 하나, deterministic이 없으면 approval required, 특정 Artifact 버전 승인 규칙은 유지한다. `verify: none`이나 설정에 의한 일괄 우회는 채택된 계약이 아니며 변경하려면 ADR과 안전 조건을 먼저 정한다.
 - **미결정 제안:** Intake에 검토를 집중, Planner가 새로 정한 것이 있을 때 Step 확인, Worker 시작 직후 가정 확인, 작은 Task의 빠른 경로·Skill로 뻔한 Step 생략. 기존 고정 흐름을 이미 대체했다고 보지 않는다. Reviewer 판정의 독립성도 유지한다.
@@ -150,6 +151,7 @@
 - `task new / run / status / review / answer`를 commands/queries 위의 얇은 입구로 제공한다. attach/log는 R02의 지원 capability에 맞춰 후속으로 제공한다. 조립 지점만 구현체를 알며 architecture 테스트로 경계를 지킨다.
 - Task 전체의 “내 입력 대기” 조회, 진행 중 Store commit의 읽기 대기/StoreBusyError 안내를 만든다. 교차 Task 조회와 lock 안 읽기가 필요하면 Store 인터페이스의 확장안을 실제 사용 사례로 검증한다.
 - 검토에 필요한 내용은 무엇이 바뀌었는지, 사람이 정할 것과 선택지/권고/책임, 미확인·남는 한계, 상세 근거다. 원래 성공 기준과의 대조, 재작업 이유/시작 버전/전체 재검토, 생략한 검증도 보여 준다.
+- **최신 사용자 방향 — 미구현:** Planner·Worker·Reviewer 각각의 결과 뒤 설정에 따라 HITL을 둔다. 기본 동작은 승인 / 수정 요청이며, 보조 동작은 질문 CLI 열기다. 수정 요청은 새 역할 세션과 새 결과를 만들고 다시 해당 HITL로 돌아온다. 질문 CLI에는 질문 시점의 Context와 초기 질문을 넘기며 읽기 전용으로 연다. devflow는 실행 인계 후 즉시 복귀하고 대화·종료·답변 수집을 관리하지 않는다. 질문 창이 열려 있어도 승인·수정 요청과 다음 진행이 가능하다. 질문 세션을 관리형 Run이나 진행 잠금으로 취급하지 않는다. 이는 이전의 ‘승인 / 세션 접속, 접속 종료까지 대기’ 제안을 대체하는 후속 요구이며 현재 구현 완료를 뜻하지 않는다. 메시지 기록 규칙의 적용 범위는 후속 구현의 새 ADR과 AGENTS.md에서 정합을 맞춘다.
 - **미결정:** decisions_needed·newly_decided·성공 기준별 결과 등 정식 출력 재료, 결정론적 렌더링에 출처 있는 AI 요약을 덧붙일지. 현재 대화 Orchestrator가 파일들을 읽고 설명하는 일을 결정론적 시스템이 저절로 할 수 있다고 가정하지 않는다.
 - **완료 기준:** AI가 요약을 다시 쓰지 않아도 사람이 승인 대상 버전·검사 실패·결정할 내용·한계를 확인하고 응답할 수 있는 최소 화면/텍스트 예제와 테스트. 같은 재료는 R12 발행에 재사용한다.
 

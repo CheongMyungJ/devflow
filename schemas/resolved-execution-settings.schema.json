@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/resolved-execution-settings.schema.json",
+  "title": "ResolvedExecutionSettings",
+  "description": "제출 시 고정하는 최종 실행 옵션과 값의 논리적 출처. 설정 파일의 로컬 경로는 저장하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "values",
+    "sources"
+  ],
+  "properties": {
+    "values": {
+      "$ref": "execution-settings.schema.json"
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "product",
+          "global.defaults",
+          "global.role",
+          "global.task_type",
+          "project.defaults",
+          "project.role",
+          "project.task_type",
+          "step",
+          "explicit"
+        ]
+      }
+    }
+  }
+}
