@@ -22,4 +22,7 @@ export class FileExecutionSettings implements ExecutionSettingsSource {
     const project = path ? await this.readFile(path, 'project-config', !this.projectPath) as ProjectConfigDevflowYaml | undefined : undefined;
     return { ...(global ? { global } : {}), ...(project?.execution ? { project: project.execution } : {}) };
   }
+  async project(workdir: string) {
+    return await this.readFile(this.projectPath ?? join(workdir, '.devflow.yaml'), 'project-config', !this.projectPath) as ProjectConfigDevflowYaml | undefined;
+  }
 }

@@ -1,6 +1,7 @@
 # ADR-0006: 세션 관찰·개입 허용, 개입은 이벤트로 기록
 
 - 상태: Accepted
+- Superseded by [ADR-0022](0022-role-hitl-and-independent-questions.md) — 독립 읽기 전용 질문 CLI의 메시지 선기록 범위만. 관리형 역할 세션은 유지.
 - 날짜: 2026-09-18
 
 ## 상황

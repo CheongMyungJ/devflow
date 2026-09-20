@@ -1,6 +1,7 @@
 # ADR-0021: 역할 실행 설정과 신규 세션의 공통 실행 수명
 
 - 상태: Accepted
+- Superseded by [ADR-0022](0022-role-hitl-and-independent-questions.md) — 후속 HITL 화면/세션 접속 제안과 자동 조율 범위.
 - 날짜: 2026-09-20
 
 ## 배경

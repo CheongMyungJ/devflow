@@ -9,6 +9,7 @@ import type { CommandContext } from './context.js';
 import { RejectedInputError } from './errors.js';
 import { submittedRun } from './runs.js';
 import { recordedAt } from './time.js';
+import { requireUnmanaged } from './workflow-guard.js';
 import { nextStepStatus, statusChangedEvents } from './transitions.js';
 
 // ---------------------------------------------------------------- recordDecision
@@ -27,7 +28,7 @@ export interface RecordDecisionInput {
 }
 
 /** Decision 에서 도구가 채우는 필드 — Planner 의 값은 원문(blob)에만 남는다. */
-const DECISION_TOOL_FILLED = ['id', 'task_id', 'planner_run_id', 'created_at'] as const;
+const DECISION_TOOL_FILLED = ['id', 'task_id', 'planner_run_id', 'created_at', 'supersedes'] as const;
 
 /**
  * Planner 의 출력을 받아들인다: blob R-NNN.output.yaml(원문), Decision, Run(completed, ended_at, packet_gaps ← Decision 의 packet_gaps, output_attempts),
@@ -49,7 +50,7 @@ export async function recordDecision(ctx: CommandContext, input: RecordDecisionI
   let step: Step | undefined;
 
   const result = await commitAfterReading(ctx, taskId, async () => {
-    await openTask(ctx, taskId);
+    const task = await openTask(ctx, taskId);
     const run = await submittedRun(ctx, taskId, runId, 'planner');
     if (isNextStep) {
       // step 이든 skill 이든 next_step 이면 — Step 은 하나씩 돈다(commands.md 6.3).
@@ -62,7 +63,8 @@ export async function recordDecision(ctx: CommandContext, input: RecordDecisionI
     return (c) => {
       const id = c.nextId('decision');
       const rest = Object.fromEntries(Object.entries(given).filter(([k]) => !(DECISION_TOOL_FILLED as readonly string[]).includes(k)));
-      decision = { id, task_id: taskId, ...rest, planner_run_id: runId, created_at: at } as Decision;
+      decision = { id, task_id: taskId, ...rest, planner_run_id: runId, created_at: at,
+        ...(task.workflow?.revision?.target.decision_id ? { supersedes: task.workflow.revision.target.decision_id } : {}) } as Decision;
       rejectIf(schemaIssues('decision', decision, `decision ${id}`));
       const writes: EntityWrite[] = [{ kind: 'decision', value: decision }];
       const events: NewEvent[] = [
@@ -124,7 +126,7 @@ export async function defineStep(ctx: CommandContext, input: DefineStepInput): P
   let humanEdit = false;
 
   const result = await commitAfterReading(ctx, taskId, async () => {
-    await openTask(ctx, taskId);
+    requireUnmanaged(await openTask(ctx, taskId));
     const current = isCanonicalId('step', stepId) ? await ctx.store.get('step', { taskId, stepId }) : undefined;
     if (current === undefined) throw new RejectedInputError([`stepId: ${taskId} 에 ${stepId} 가 없다`]);
     const next = nextStepStatus('defineStep', current.status, stepId);

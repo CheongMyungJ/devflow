@@ -286,6 +286,8 @@ step 스키마의 status: `proposed`, `defined`, `running`, `checking`, `in_revi
 | revising | checking | `completeRun` | 재작업 완료, 다시 검증 |
 | in_review | approved | `approveStep` | 승인(같은 commit 에서 이어서 closed) |
 | approved | closed | `approveStep` | Step 을 닫는다 |
+| checking | 그대로 | `holdGate` | Reviewer 판정 기록, 역할 HITL에서 수용하기 전 진행 보류 |
+| checking | revising | `reviseResult` | Worker/Reviewer HITL에서 산출물 수정 요청 |
 | proposed·defined·running·checking·in_review·revising | cancelled | (`cancelStep` — 필요해지면 더한다) | 사람이 Step 을 버린다. 지금까지 쓰인 적이 없다 |
 
 - closed·cancelled 는 끝이다. 거기서 나가는 전이는 없다. approved 는 `approveStep` 의 한 commit 안에서만 지나간다(0단계의 기록과 같다 — 승인과 닫기가 같은 시각이었다).
@@ -309,3 +311,17 @@ Git 경계와 복구 처리의 상세는 `docs/design/workspace.md`, 운영 예�
 `submitWorker`는 로컬 prepare → submitRun 기록 → Runner submit을 연결하는 다단계 command다. `WorkerCommandContext`는 Workspace Context에 Runner를 주입받는다. `getWorkerExecution`은 관찰만 하고 `collectWorker`는 확인된 종료 결과를 completeRun/failRun으로 수집한다. terminal Run 자체가 수집 영수증이므로 반복 수집으로 Artifact/이벤트를 추가하지 않는다. 실제 상태는 execution.state이며 공유 Run은 수집 전 submitted다.
 
 네 백엔드는 같은 command/query를 사용한다. CLI의 backend 선택은 조립 지점에서 처리하며 구체적인 Runner나 Git 구현을 commands/queries에 import하지 않는다. 명시적 backend/model/prompt/산출물 정책은 재제출 일치 검사에 포함한다. 실행 후 확정하는 `workspace:code`는 supervisor가 Git 구현으로 검증한 종료 SHA를 사용한다. Store commit과 프로세스 시작을 원자적으로 취급하지 않는다. 입력·상태·unknown의 수동 절차와 CLI 버전 제약은 [Runner 계약](runner.md)에 있다.
+
+## 10. 역할 HITL과 Orchestrator (ADR-0022)
+
+`startWorkflow`는 사람의 명시적 시작 설정을 기록하고 `advance`를 호출한다. 열린 Step이 없으면 Planner, defined Step 하나가 있으면 Worker부터 시작한다. 이미 submitted인 Run 또는 그 밖의 열린 Step은 먼저 기존 운영 경로로 정리해야 한다. 같은 설정으로 다시 시작하면 기존 커서를 사용한다.
+
+`advance`는 외부 실행 전 action을 CAS로 예약한다. 역할별 결과는 기존 수집 command로 검증·기록하고 이어서 현재 결과의 HITL 대상을 기록한다. 이 두 commit 사이의 중단은 terminal Run을 다시 읽어 복구한다. waiting 커서 갱신과 이후 응답은 별도 CAS로 대조한다. 비동기 실행에는 반환하며 호출자가 다시 관찰할 때 진행한다. 오류가 나면 승인/실행 예약이 이미 기록됐을 수 있으므로 현재 `getWorkflow`를 조회해야 한다.
+
+`respondHitl`은 대기 대상 객체 전체를 요구한다. 승인·수정 요청과 Feedback, 필요한 Step 전이, 다음 커서를 한 commit으로 쓴 뒤 `advance`를 호출한다. 같은 사람이 같은 대상에 같은 응답을 재전송하면 기존 영수증만 반환하고 추가 진행하지 않는다. 바뀐 응답이나 오래된 대상은 거부한다. Reviewer 수정은 worker/reviewer 중 명시적 대상 선택을 요구한다. 역할 수용은 `hitl.responded`, 최종 산출물 승인은 버전별 `artifact.approved`와 승인 Feedback으로 구별한다.
+
+`openQuestion`은 현재 대상을 확인하고 고정 자료를 조립한 뒤 초기 질문 사건을 먼저 기록한다. Runner의 별도 인계 계약이 반환하면 인계 결과 사건만 추가한다. 이 동안 승인이 진행되어도 그 상태를 변경하지 않는다. 인계 후 대화/종료/답변은 관리하지 않으며 `question` 결과는 승인 영수증이 아니다.
+
+질문 AI는 공통 설정의 `question` 선택자를 사용한다. 대상 Run의 backend/model을 재사용하지 않고, 호출 시점의 전역·프로젝트·작업 유형·확정 Step·명시 입력을 해석한다. 실효값/출처는 질문 사건과 반환값에 포함한다. 관리형 실행의 설정 조회 입구도 `role: question`을 지원하지만 `start`의 관리형 역할에는 추가하지 않는다(ADR-0023).
+
+`getWorkflow`는 현재 대기 대상·Decision/Gate·Artifact 버전의 원문과 선택지를 조회한다. CLI가 Store를 직접 읽지 않는다. 자동 흐름이 활성인 Task에서 `defineStep`, `requestRevision`, `approveStep`와 예약 없는 `submitRun/submitWorker/submitRole`은 거부한다. 수집·조회·지원되는 live 메시지/취소는 기존 경로를 유지한다. 필드의 기준 정의는 `schemas/workflow*.json`, `hitl-target.schema.json`과 관련 엔티티 스키마다.

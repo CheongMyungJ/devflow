@@ -44,6 +44,7 @@ export async function completeTask(ctx: CommandContext, input: CompleteTaskInput
 
   const result = await commitAfterReading(ctx, taskId, async () => {
     const current = await openTask(ctx, taskId);
+    if (current.workflow && (current.workflow.phase !== 'ready_to_complete' || current.workflow.decision_id !== decisionId)) throw new RejectedInputError(['Confirm the current Planner done result at HITL before completing the Task']);
     const decision = await ctx.store.get('decision', { taskId, id: decisionId });
     if (decision === undefined) throw new RejectedInputError([`decisionId: ${taskId} 에 ${decisionId} 가 없다`]);
     if (decision.action !== 'done') throw new RejectedInputError([`decisionId: ${decisionId} 의 action 은 ${decision.action} 다 — done 인 Decision 을 사람이 확정한 뒤에 닫는다`]);

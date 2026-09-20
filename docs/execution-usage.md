@@ -20,9 +20,13 @@ roles:
     backend: codex
   intake:
     backend: claude-code
+  question:
+    backend: codex
+    model: gpt-5.5
+    reasoning: medium
 ```
 
-모델 이름은 사용 계정·CLI가 지원하는 값으로 지정한다. backend별 추론 옵션은 의미와 지원 범위가 다르며 미지원 값은 거부한다. OpenCode의 추론 variant는 아직 검증하지 않았으므로 지정하면 오류다. 설정을 생략한 기존 fake 사용법도 유지한다.
+모델 이름은 사용 계정·CLI가 지원하는 값으로 지정한다. backend별 추론 옵션은 의미와 지원 범위가 다르며 미지원 값은 거부한다. OpenCode의 추론 variant는 아직 검증하지 않았으므로 지정하면 오류다. 설정을 생략한 기존 관리형 역할의 fake 사용법도 유지한다. 독립 질문의 제품 기본 backend는 codex이며 질문 대상 역할의 모델을 자동 재사용하지 않는다.
 
 프로젝트의 `.devflow.yaml`에서는 같은 내용을 `execution:` 아래에 둔다. 전역보다 프로젝트 설정, 프로젝트보다 확정된 Step 설정, 그보다 이번 실행의 명시 입력이 우선한다. 작업 유형별 설정은 `task_types.<유형>.<역할>`에 둔다. 설정 필드의 정확한 계약은 schemas의 description을 따른다.
 
@@ -96,6 +100,88 @@ live message는 Claude Code에서만 지원한다. Reviewer에는 전달할 수 
 
 수집한 결과는 기존 승인·Feedback·재작업 명령으로 처리한다. 이미 기록한 버전을 직접 바꾸지 않는다. Worker 재작업에는 이전 작업 노트, Artifact, Gate와 Feedback이 포함된다. 수정 후에는 새 Artifact 버전과 Step에 선언된 검증이 필요하다. semantic 검증을 사용하는 경우 Reviewer도 새 세션으로 실행한다.
 
-여기서 **검증**은 시스템의 테스트 실행(deterministic)과 Reviewer의 요구사항·범위 확인(semantic)을 뜻한다. **결과 검토**는 사람이 산출물·검증 결과를 읽고 승인하거나 수정을 요청하는 HITL 단계다. 현재 구현은 Reviewer 실행·결과 기록까지이며 deterministic 명령 자동 실행은 R05의 후속이다.
+여기서 **검증**은 시스템의 테스트 실행(deterministic)과 Reviewer의 요구사항·범위 확인(semantic)을 뜻한다. 아래 자동 흐름에서는 역할별 HITL과 선언된 검증을 시스템이 연결한다. 자동 흐름을 시작한 Task에서는 기존 기록 전용 승인/수정 명령으로 HITL을 우회할 수 없다.
 
-이 입구가 승인 후 다음 역할을 자동 선택하지는 않는다. `advance`, 제품용 `task review`, 역할별 HITL은 후속 작업이다. 최신 후속 방향은 “승인 / 수정 요청”과 보조 기능 “질문 CLI 열기”다. 독립 질문 CLI는 읽기 전용이며 devflow는 실행 인계 후 즉시 복귀하고 대화·종료·답변 수집을 관리하지 않는다. 질문 창을 닫아야 본 흐름을 진행하는 구조도 아니다. 아직 구현된 기능은 아니며, [후속 작업 프롬프트](handoff-hitl.md)에 범위와 현재 코드에서 바꿀 지점을 정리했다.
+## 역할별 HITL 흐름 시작
+
+Task 발행과 `prepare-workspace`를 마친 뒤, 열린 Step이 없거나 defined Step 하나인 상태에서 다음 요청을 실행한다. 실행 backend는 기존 전역/프로젝트/Step 설정을 사용한다. 제품 기본 fake는 테스트용이므로 실제 작업에서는 backend를 설정한다.
+
+```json
+{
+  "action": "workflow-start",
+  "taskId": "T-0001",
+  "config": {
+    "hitl": { "planner": true, "worker": true, "reviewer": true },
+    "planner": { "backend": "codex", "prompt": "Task와 이전 기록에 근거해 다음 Step 전체 정의를 제안해줘." },
+    "worker": { "backend": "codex", "prompt": "확정 Step과 수정 요청을 수행하고 문서 원문과 판단 근거를 work_notes에 남겨줘. 코드 변경은 commit해줘." },
+    "reviewer": { "backend": "codex", "prompt": "고정된 버전의 semantic 질문과 done_when을 검토해줘. 실패 항목은 pass로 바꾸지 마." }
+  }
+}
+```
+
+```powershell
+npm run execution -- <data-dir> <start.json> --runner-dir <runner-dir> --machine-config <machine.yaml> --actor human:<이름>
+npm run hitl -- <data-dir> T-0001 --runner-dir <runner-dir> --machine-config <machine.yaml> --actor human:<이름> --question-backend codex
+```
+
+HITL 메뉴의 기본 선택은 **1 승인 / 2 수정 요청**, 보조 선택은 **3 질문 CLI 열기**다. 실행 중에는 Enter로 진행 상태를 다시 확인한다. 시작 직후 devflow를 종료해도 역할/검증 실행은 유지되며 같은 Task로 다시 메뉴를 열 수 있다. `runner-dir`는 Store와 Task worktree 밖에 둔다.
+
+- Planner 승인: 제안된 Step을 확정하고 Worker를 시작한다. 수정 요청: 과거 Decision을 보존하고 새 Planner에서 재제안한다.
+- Worker 승인: 선언된 검증을 시작한다. 최종 산출물 승인이 아니다. 수정 요청: 같은 worktree에서 새 Worker가 새 버전을 만들고 Worker HITL로 돌아온다.
+- Reviewer 승인: pass/fail 판정을 그대로 수용한다. fail이면 Worker 재작업이며 다음 결과는 활성화된 Worker HITL로 돌아온다. 수정 요청은 코드·산출물 수정(Worker)과 판단 재검토(Reviewer)를 선택한다.
+- 검증 pass 뒤 Step의 최종 승인이 required이면 별도 버전 승인을 기다린다. deterministic이 없으면 optional 설정이어도 사람 승인을 요구한다. 최종 승인 뒤 다음 Planner로 이어진다.
+
+문서/data 산출물은 현재 최소 자동 흐름에서 `work_notes` 원문으로 버전 저장한다. 여러 문서 출력은 같은 노트에 들어가므로 문서를 별도 파일로 수집하는 정책은 후속이다. 코드 출력은 실행 종료 시 확인한 commit으로 저장한다. deterministic의 직접 명령과 `.devflow.yaml`의 `@명령`을 지원하며, 자동 setup/exclusive 잠금은 지원하지 않아 해당 설정은 오류로 알려준다.
+
+## JSON 입구와 정확한 대상
+
+```json
+{"action":"advance","taskId":"T-0001"}
+```
+
+```json
+{"action":"hitl","taskId":"T-0001"}
+```
+
+반환된 `target` 객체를 **그대로** 다음 요청에 넣는다. 아래 예의 UUID/ID/버전은 실제 조회값으로 바꾼다.
+
+```json
+{
+  "action": "respond", "taskId": "T-0001", "response": "revise",
+  "target": { "id": "00000000-0000-4000-8000-000000000001", "role": "reviewer", "run_id": "R-003", "step_id": "step-001", "gate_id": "G-001", "artifact_refs": ["artifact://T-0001/step-001/report@v1"] },
+  "text": "두 번째 근거를 다시 검토해줘.", "destination": "reviewer"
+}
+```
+
+승인은 `response: "approve"`, 수정은 `response: "revise"`와 text다. destination은 Reviewer 수정에서만 필요하다. 같은 응답 재전송은 기록된 영수증 조회이며, 다음 단계 진행 뒤 과거 응답을 바꿀 수 없다.
+
+## 질문 CLI
+
+메뉴에서 초기 질문을 입력하거나 `action: "question"`, 현재 target, text와 선택적 backend/model/reasoning을 전달한다. Windows/Codex **0.154.0**을 지원하며 다른 backend/버전/OS는 명시적으로 거부한다.
+
+질문 AI도 위 전역 설정의 `roles.question`을 사용한다. 프로젝트 `.devflow.yaml`에서는 다음처럼 지정한다.
+
+```yaml
+execution:
+  roles:
+    question:
+      backend: codex
+      model: gpt-5.5
+      reasoning: medium
+```
+
+공통 설정 순서와 `task_types.<유형>.question`, 확정 Step의 `execution.question`도 지원한다. 아직 승인하지 않은 Planner 제안의 Step 설정은 적용하지 않는다. 질문 호출마다 설정을 읽고 실효값/출처를 기록하므로 이후 설정 변경이 이미 열린 창을 바꾸지는 않는다.
+
+일회성 덮어쓰기는 HITL CLI의 `--question-backend`, `--question-model`, `--question-reasoning` 또는 JSON 질문 요청의 backend/model/reasoning으로 지정한다. JSON에서 model/reasoning을 null로 지정하면 상속값을 CLI 기본값으로 되돌린다. 공통 defaults의 timeout/isolation/output_retries는 질문에 적용하지 않으며 `roles.question`에 직접 넣으면 오류다. 읽기 전용·승인 금지는 고정이다.
+
+실효 설정은 기존 실행 입구에 `{"action":"settings","role":"question","taskId":"T-0001"}`을 보내 조회한다. 확정 Step 설정까지 확인하려면 stepId도 지정한다. 설정 설계는 [ADR-0023](adr/0023-question-ai-settings.md)에 있다.
+
+**질문 시점의 결과 기준**이라는 표시와 정확한 문서 버전·코드 SHA, 원래 Context·Decision·작업 노트·Gate·Feedback을 새 창에 제공한다. 코드는 Git 객체에서 읽으며 진행 중 worktree의 최신 내용을 섞지 않는다. 원래 세션의 기록되지 않은 사고 과정을 복구하지 않는다.
+
+자료는 별도 디렉터리에 있고 Codex는 읽기 전용 sandbox에서 실행한다. 별도 native 설정/인증 디렉터리를 사용하며 기존 자격증명은 복사하지 않는다. 질문 창에서 로그인·sandbox 초기 설정이 필요할 수 있다. devflow는 **터미널 실행 인계 후 바로 메뉴로 돌아온다.** 창을 열어 둔 채 승인/수정 요청과 다음 역할 진행이 가능하다. 대화·종료·답변 수집·요약·반영은 하지 않는다. 인계 실패도 Task를 실패로 바꾸지 않으며, 인계 후 오류는 native 창에서 확인한다.
+
+질문 자료와 native CLI 자체 설정/이력은 runner-dir 아래에 남는다. 자동 삭제하지 않으며 대화 종료 여부를 devflow가 판단하지 않는다. 사용자가 필요한 시점에 로컬 자료를 정리한다. 실제 창/쓰기 제한 검증과 모델 대화 검증의 범위는 [Runner 계약](design/runner.md)에 구분했다.
+
+## 중단과 남은 범위
+
+unknown 실행은 원래 머신과 runner-dir에서 확인한다. 예약이나 시작 표식을 지워 재시작하지 않는다. 종료가 확인된 실패 Run도 자동 대체하지 않는다. 검증이 worktree를 바꿨다면 실패 Gate를 기록하고 변경을 보존한다. 다음 Worker 전에 사람이 변경을 확인·정리하고 `advance`를 다시 호출한다. Planner 시작도 질문용 코드 버전을 고정할 수 있도록 clean worktree가 필요하다. Planner의 done 승인 후에는 ready_to_complete에서 멈추며 merge/Task done은 기존 별도 절차다. ask_human/rework/abort/Skill 이름 제안은 수용 후 정지하고 새 계획 수정 요청으로 이어갈 수 있다. 전체 제품 CLI·Ledger 자동 생성·실효 요구사항 합성·resume·OpenCode 실제 모델 연동은 이번 완료 범위에 포함하지 않는다.

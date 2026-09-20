@@ -139,6 +139,13 @@ describe('구조 제약 — Workspace', () => {
 });
 
 describe('구조 제약 — Runner', () => {
+  it('interactive HITL uses only commands/queries; verification and question adapters stay behind interfaces', () => {
+    const ui = readFileSync(join(REPO_ROOT, 'scripts', 'hitl.mjs'), 'utf8');
+    expect(ui).not.toMatch(/\.store\b|FileStore|spawn\(|execFile|runner\./);
+    expect(ui).toContain('commands.respondHitl(ctx,'); expect(ui).toContain('commands.openQuestion(ctx,');
+    const callers = [...sourceFiles(join(REPO_ROOT, 'src', 'commands')), ...sourceFiles(join(REPO_ROOT, 'src', 'queries'))];
+    expect(callers.flatMap(file => importsOf(file).filter(spec => /verification\/local/.test(spec)))).toEqual([]);
+  });
   it('commands/queries use the Runner interface, never concrete backends or local execution', () => {
     const callers = [...sourceFiles(join(REPO_ROOT, 'src', 'commands')), ...sourceFiles(join(REPO_ROOT, 'src', 'queries'))];
     expect(callers.flatMap((file) => importsOf(file).filter((spec) => /runner\/(fake|local|claude-code|codex|opencode)/.test(spec)))).toEqual([]);

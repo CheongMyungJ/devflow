@@ -4,6 +4,13 @@ import { WorkspaceError } from '../errors.js';
 
 const exec = promisify(execFile);
 
+/** Exact bytes for immutable object snapshots (no whitespace trimming or text conversion). */
+export async function gitBytes(cwd: string, args: string[]): Promise<Buffer> {
+  const { stdout } = await exec('git', ['-c', 'core.hooksPath=', ...args], { cwd, encoding: 'buffer', timeout: 60_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } });
+  return stdout;
+}
+
 /** 옵션은 인자 배열로 전달한다. 비대화형 실행, 유한한 시간, stdout 크기 제한. */
 export async function git(cwd: string | undefined, args: string[]): Promise<string> {
   try {

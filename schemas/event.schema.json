@@ -52,6 +52,7 @@
         "workspace.prepare_requested",
         "workspace.prepared",
         "run.cancel_requested"
+        ,"workflow.started", "workflow.advanced", "workflow.action_reserved", "hitl.waiting", "hitl.responded", "question.requested", "question.handed_off", "question.failed"
       ]
     },
     "actor": {

@@ -37,6 +37,7 @@
 - 최상위 필드는 `verdict`, `checks`, `done_when`, `comments`, `packet_gaps` 다섯뿐이고 모두 필수다. 다른 필드(id, 시각 등)가 있으면 받아들여지지 않는다 — 식별 필드는 시스템이 채운다. 배열의 항목에도 아래에 적히지 않은 필드를 더하지 않는다.
 - `verdict`: `pass` 또는 `fail`.
 - `checks`: `{kind, name, result, evidence}` 의 배열. `verify.semantic` 의 질문마다 한 항목 — `kind` 는 `semantic`, `name` 은 그 질문, `result` 는 `pass` | `fail` | `skipped`, `evidence` 는 근거(문자열). deterministic 검사를 적을 때는 `kind` 는 `deterministic`, `name` 은 검사 이름, `result` 는 시스템의 결과 그대로.
+- Context의 Task에 `workflow`가 있으면 `checks`에는 선언된 semantic 질문을 정확히 한 번씩만 적는다. deterministic 결과는 시스템이 Gate에 합치므로 출력에 복사하지 않는다. `done_when`도 선언된 조건마다 정확히 한 항목을 적는다. 실패·생략한 검사나 미충족 조건이 있으면 pass로 보고하지 않는다. 재검토 요청이면 이전 Gate와 사람의 요청을 읽고 같은 Artifact 버전을 새로 판단한다. 산출물을 수정하지 않는다.
 - `done_when`: `{condition, met, evidence}` 의 배열. 완료 조건마다 한 항목 — `condition` 은 그 조건, `met` 은 `true` | `false`.
 - `comments`: `{severity, class, text}` 의 배열. 지적이 없으면 빈 배열. 문장으로 쓰지 않는다. `text` 앞머리에 severity·class 를 되풀이하지 않는다.
   - severity — `defect`: 산출물이 Step 의 목표·완료 조건·제약에 어긋난다 / `risk`: 지금 어긋난 것은 아니지만 문제가 될 수 있다(미확인 케이스, 깨지기 쉬운 전제) / `note`: 그 밖의 관찰·의견.

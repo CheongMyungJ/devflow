@@ -18,3 +18,6 @@ export { submitRole, collectExecution, type SubmitRoleInput } from './roles.js';
 export { cancelExecution, sendExecutionMessage } from './execution-control.js';
 export { createIntake, submitIntake, collectIntake, confirmIntakeIntent, publishIntake, cancelIntake } from './intake.js';
 export { operateExecution } from './execution.js';
+export { advance, startWorkflow, respondHitl } from './workflow.js';
+export type { WorkflowContext } from './workflow.js';
+export { openQuestion } from './question.js';

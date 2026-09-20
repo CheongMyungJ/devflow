@@ -20,7 +20,7 @@
 6. 상태 전이는 시스템(Orchestrator)만 한다. AI 출력은 제안이며, 스키마 검증을 통과해야 반영된다.
 7. 이벤트는 append-only. 성립한 commit 의 이벤트를 수정·삭제하지 않는다. (commit 도중 죽어 성립하지 못한 commit 의 잔여물을 Store 의 복구가 잘라내는 것은 여기에 해당하지 않는다 — ADR-0011, `docs/design/store.md` 2.5)
 8. 승인은 항상 특정 Artifact 버전을 명시한다.
-9. 사람이 세션에 보내는 메시지는 이벤트로 기록된 뒤 세션에 전달된다 (ADR-0006).
+9. 사람이 **관리형 역할 세션**에 보내는 메시지는 이벤트로 기록된 뒤 세션에 전달된다 (ADR-0006). 독립 읽기 전용 질문 CLI는 초기 질문·대상·인계 시도/결과만 기록하고, 인계 후 native 대화·종료·답변은 devflow가 관리하지 않는다(ADR-0022). 질문 대화는 승인이나 수정 요청이 아니다.
 10. Step 의 `verify` 는 deterministic/semantic 중 하나 이상 필수. deterministic 이 비어 있으면 approval 은 `required` 로 강제한다 (ADR-0003).
 11. Task 하나는 repo 하나, worktree 하나. Worker 와 Gate 는 해당 Task 의 worktree 밖에서 실행하지 않는다 (ADR-0008).
 12. resume 은 최적화다. 어떤 흐름도 resume 성공을 전제로 하지 않는다. 실패 시 Context 패킷으로 새 세션을 띄우는 경로가 항상 있어야 한다 (ADR-0010).

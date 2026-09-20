@@ -64,12 +64,20 @@ export async function recordGate(ctx: CommandContext, input: RecordGateInput): P
 
   let gate!: GateResult;
   const result = await commitAfterReading(ctx, taskId, async () => {
-    await openTask(ctx, taskId);
+    const task = await openTask(ctx, taskId);
     const step = await ctx.store.get('step', { taskId, stepId });
     if (step === undefined) throw new RejectedInputError([`stepId: ${taskId} 에 ${stepId} 가 없다`]);
     // (1) Run
     const run = await submittedRun(ctx, taskId, reviewerRunId, 'reviewer', stepId);
-    const next = nextStepStatus(out.verdict === 'pass' ? 'recordGate(pass)' : 'recordGate(fail)', step.status, stepId);
+    // Workflow separates recording a verdict from accepting it at Reviewer HITL.
+    if (task.workflow && task.workflow.action?.run_id !== reviewerRunId) throw new RejectedInputError(['Gate does not match the reserved workflow result']);
+    if (task.workflow) {
+      const declared = step.verify.semantic ?? [];
+      if (out.checks.length !== declared.length || declared.some(name => out.checks.filter(check => check.kind === 'semantic' && check.name === name).length !== 1)) throw new RejectedInputError(['Reviewer must report every declared semantic check exactly once; deterministic results are system-owned']);
+      if (out.done_when.length !== step.done_when.length || step.done_when.some(condition => out.done_when.filter(check => check.condition === condition).length !== 1)) throw new RejectedInputError(['Reviewer must report every done_when exactly once']);
+      if (out.verdict === 'pass' && (out.checks.some(check => check.result !== 'pass') || out.done_when.some(check => !check.met))) throw new RejectedInputError(['Reviewer pass conflicts with failed/skipped checks or unmet done_when']);
+    }
+    const next = nextStepStatus(task.workflow ? 'holdGate' : out.verdict === 'pass' ? 'recordGate(pass)' : 'recordGate(fail)', step.status, stepId);
     const reasons: string[] = [];
     for (const [i, ref] of input.artifactRefs.entries()) await checkArtifactRef(ctx, ref, { taskId, stepId }, `artifactRefs[${i}]`, reasons);
     rejectIf(reasons);
@@ -83,7 +91,7 @@ export async function recordGate(ctx: CommandContext, input: RecordGateInput): P
         step_id: stepId,
         artifact_refs: [...input.artifactRefs] as GateResult['artifact_refs'],
         verdict: out.verdict,
-        checks: out.checks,
+        checks: [...(task.workflow?.verification?.checks ?? []), ...out.checks],
         done_when: out.done_when,
         comments: out.comments as NonNullable<GateResult['comments']>,
         ...(input.annotations !== undefined ? { annotations: input.annotations as NonNullable<GateResult['annotations']> } : {}),

@@ -22,6 +22,7 @@ import {
 import type { CommandContext } from './context.js';
 import { RejectedInputError } from './errors.js';
 import { recordedAt } from './time.js';
+import { requireWorkflowAction } from './workflow-guard.js';
 import { nextStepStatus, statusChangedEvents } from './transitions.js';
 
 // ---------------------------------------------------------------- submitRun
@@ -69,7 +70,8 @@ export async function submitRun(ctx: CommandContext, input: SubmitRunInput): Pro
   let run!: Run;
 
   const result = await commitAfterReading(ctx, taskId, async () => {
-    await openTask(ctx, taskId);
+    const task = await openTask(ctx, taskId);
+    requireWorkflowAction(ctx, task, role, input.expectId);
     if (input.execution) {
       const active = (await ctx.store.list('run', { taskId })).items.filter(r => r.execution && r.status === 'submitted');
       if (active.length) throw new RejectedInputError(['Task has an uncollected managed execution; collect or confirm termination before another role starts']);

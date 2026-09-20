@@ -33,7 +33,7 @@
 |---|---|---|---|
 | commands / queries | 사람·외부가 시스템에 접근하는 유일한 경로. 기록은 모두 command 가 Store 의 commit 으로 쓴다. 규약 `docs/design/commands.md` (아래 2.2) | in-process 함수. 0단계에는 운영 스크립트(`scripts/*.mjs`, 입구)가 조립 지점을 거쳐 부른다 | HTTP API |
 | State Store | Task/Step/Decision/Feedback/GateResult/Run/Artifact 와 이벤트, blob 저장. Task 안의 ID 발급, 불변 기록의 덮어쓰기 방지, commit 식별자. 인터페이스 `src/store/types.ts`, 설계 `docs/design/store.md` (아래 2.1) | 파일 (`devflow-data` repo), `src/store/file/` | DB + object storage |
-| Orchestrator | 멱등 `advance(task_id)` | 사람이 `task run` 으로 호출 | 이벤트가 호출 |
+| Orchestrator | 멱등 `advance(task_id)`, 역할별 HITL | `execution` 요청 또는 `hitl` 메뉴로 호출 | 이벤트가 호출 |
 | Role Runner | `prepare / submit / inspect` 비동기 실행·결과 회수 | 공통 detached supervisor + fake / Claude Code / Codex / OpenCode CLI Worker. 신규 write만 지원 | job queue + 컨테이너 |
 | Workspace | Task 별 branch/worktree 준비·조회·중단 후 대조 | `src/workspace/types.ts` 뒤의 로컬 Git 구현, `prepare-workspace`·`workspace-status` | 서버 clone, remote 경유 |
 
@@ -58,7 +58,7 @@
 
 ### 2.3 Workspace 준비 (구현됨)
 
-- 공개 경로는 `commands.prepareWorkspace(ctx, { taskId })`, `queries.getWorkspace(ctx, taskId)`다. 확장 Context가 Store와 `Workspace` 인터페이스를 받는다. `src/workspace/git/`만 Git 명령·로컬 경로·머신 관리 기록을 안다. 조립 지점이 `GitWorkspace`와 `FileProjectCatalog`를 만든다. 준비된 위치를 Worker 실행 command가 사용한다. `advance`는 아직 없다.
+- 공개 경로는 `commands.prepareWorkspace(ctx, { taskId })`, `queries.getWorkspace(ctx, taskId)`다. 확장 Context가 Store와 `Workspace` 인터페이스를 받는다. `src/workspace/git/`만 Git 명령·로컬 경로·머신 관리 기록을 안다. 조립 지점이 `GitWorkspace`와 `FileProjectCatalog`를 만든다. 준비된 위치를 역할 실행과 `advance`의 Verifier가 사용한다. 질문용 `Workspace.snapshot`은 worktree 파일이 아닌 고정 SHA의 Git 객체를 읽는다.
 - 발행 입력에 branch가 없으면 등록 원격의 HEAD를 조회한다. 이름만 지정하면 remote, local은 이름 필수다. 최초 준비는 remote branch를 fetch하거나 local branch를 읽어 SHA를 고정한다. 실패 시 다른 출처로 대체하지 않는다. 옛 Task의 출처는 추정하지 않는다.
 - 준비는 `workspace.prepare_requested` commit → Git 생성/대조 → `workspace.prepared` commit이다. 두 commit은 원자적이지 않다. 재호출은 고정 SHA와 로컬 소유 기록·Git 상태·생성 완료 표식을 대조한다. 정상 작업공간이 있으면 변경을 보존하고 빠진 완료 기록만 보충한다. 완료된 작업공간이 없어졌거나 소유/branch/저장소가 다르면 중단한다.
 - Git common directory의 `devflow-workspaces/`는 머신별 소유 기록과 완료 표식·잠금을 보관한다. 공유 State Store 밖의 실행 구현이며 Task 이벤트에는 위치를 기록하지 않는다. 원격 fetch는 고유 `refs/devflow/fetch/`에 받아 최초 SHA를 보존한다. 자동 정리는 이번 범위 밖이다.
@@ -103,10 +103,10 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
                                                   └─(자동 검증 실패 시 바로 revising)
 ```
 
-- `checking`: Step 의 `verify` 에 **선언된 것만** 실행한다. 순서는 deterministic → semantic(AI 리뷰). 선언되지 않은 단계는 건너뛴다.
-- 검증은 사람 검토 **전에** 수행하고, 결과를 검토 화면에 함께 제시한다. 공식 Gate 판정은 승인된 버전에 대해 확정하며, 버전이 같으면 캐시된 결과를 쓴다.
-- `approval: optional` 인 Step 은 Gate 통과 시 `in_review` 를 건너뛴다. 단, `verify.deterministic` 이 비어 있으면 시스템이 `required` 로 강제한다.
-- (*) Planner 의 Step 제안 확인은 MVP 기본값. 수정률이 낮아지면 `--auto-plan` 으로 생략한다.
+- `checking`: Worker 결과 직후에는 설정된 Worker HITL을 먼저 기다린다. 승인은 검증 시작만 허용한다. 그 뒤 Step의 `verify`에 선언된 deterministic → semantic 검증만 수행한다.
+- Reviewer 결과를 기록해도 설정된 Reviewer HITL을 수용하기 전에는 checking을 유지한다. pass 수용은 in_review, fail 수용은 revising이다. 같은 버전의 재검토도 새 Gate로 남긴다.
+- 최종 Artifact 승인은 검증한 버전의 pass Gate를 지목한다. `approval: optional`이고 deterministic이 있을 때만 자동으로 approved→closed를 통과한다. deterministic이 없으면 항상 사람이 최종 승인한다.
+- 역할별 HITL은 기본적으로 모두 켜져 있으며 `workflow-start.config.hitl`에서 각각 생략할 수 있다. Planner 수정은 과거 Decision을 보존하고 기존 proposed Step을 cancelled로 전이한 뒤 새 제안을 만든다.
 
 ## 5. 책임 경계
 
@@ -120,13 +120,13 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 | 다음 행동 결정 | Planner — 다섯 가지 선택지 안에서만. 실행하지 않는다 |
 | 승인, 요구사항 변경, 질문 응답 | 사람 |
 
-안전장치: Step 당 재작업 횟수 상한, Task 당 Step 수·비용 상한. 초과 시 자동으로 `ask_human`.
+`advance` 한 호출의 진행 횟수는 제한되어 있으며 비동기 실행/HITL에서 반환한다. Task 전체의 재작업·비용 상한 정책은 아직 없다.
 `done` 결정은 AC 별 충족 근거가 필수이고 사람이 최종 확정한다.
 
 ## 6. Step 과 Skill
 
 - Step 스키마는 하나다. **Freeform** 은 Planner 가 모든 필드를 작성하고, **Skill** 은 파라미터가 있는 Step 템플릿 + Worker 지침 + 기본 검증이다.
-- Planner 가 `skill: X` 와 파라미터를 지정하면 시스템이 완전한 Step 정의로 펼친다. 이후 실행 경로는 Freeform 과 동일하다. Worker/Reviewer/Orchestrator 는 Skill 개념을 모른다.
+- 자동 흐름은 완전한 Step 정의를 받는다. Skill 이름/파라미터만인 제안의 자동 펼치기는 미구현이므로 수용 후 정지하고 전체 정의로 재제안할 수 있다.
 - Skill 은 설계하지 않고 **추출**한다. 회고에서 반복 패턴이 확인되면 승격하고, 버전을 붙인다.
 
 ### 검증 구성 가이드
@@ -142,20 +142,21 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 
 ## 7. 사람과의 상호작용
 
-아래 제품 CLI와 HITL 화면은 후속 설계다. 현재 운영 입구의 구현 범위는 8절을 따른다. 최신 후속 요구는 **승인 / 수정 요청**, 보조 기능 **독립 질문 CLI 열기**다. 질문 CLI는 읽기 전용으로 질문 시점의 Context를 전달받으며, devflow는 실행 인계 후 즉시 복귀한다. 대화나 종료를 기다리지 않고 답변을 상태에 반영하지 않는다. 역할별 HITL과 이 질문 CLI는 아직 구현하지 않았다. 이전의 관리형 대화 화면 제안과 달라진 범위·필요한 계약 변경은 [후속 작업 프롬프트](handoff-hitl.md)를 따른다.
+`scripts/hitl.mjs`는 **승인 / 수정 요청**과 보조 선택 **질문 CLI 열기**를 제공한다. JSON/YAML 입구 `scripts/execution.mjs`도 같은 commands/queries를 호출한다. 상세 사용법은 [역할 실행 사용법](execution-usage.md), 결정은 [ADR-0022](adr/0022-role-hitl-and-independent-questions.md)를 따른다.
 
 | 접점 | 방식 |
 |---|---|
-| Task 발행 | `task new` — Intake 와 실시간 대화. 두 단계로 확인한다: 의도 초안 확인(7칸, AC 없이 — 첫 승인 지점) → 정의 확인(AC 와 범위) 뒤 발행 (ADR-0014) |
-| 진행 | `task run` — 사람 입력이 필요한 지점까지 `advance` |
-| 검토 | `task review` — 산출물 + Gate 결과 확인 후 승인 / 수정 요청 / 질문 / 요구사항 추가 / 직접 수정 |
-| AI 의 질문 | `ask_human` 시 멈춤 → `task answer` |
-| 관찰 | `task run --watch`, `task attach`, `task log` — 제약 없음 |
-| 실행 중 개입 | `task attach` 에서 메시지 전송 → `send_message` 명령으로 **이벤트 기록 후** 세션에 전달 |
+| Task 발행 | `execution`의 Intake 의도 확인 → 정의 확인 → 발행 |
+| 진행 | `workflow-start`, `advance`; 실행 중에는 반환하며 새로고침 때 수집 |
+| 검토 | `hitl` 메뉴 또는 `respond`; 정확한 대기 대상과 버전으로 승인/수정 요청 |
+| Planner의 추가 판단 필요 | ask_human/rework/abort/Skill 제안 수용 뒤 정지; 설명을 보고 새 계획 수정 요청 가능 |
+| 관찰 | `status`, `log`, `hitl` 조회 |
+| 실행 중 개입 | 지원 backend의 `message` — **이벤트 기록 후** 관리형 세션에 전달 |
+| 독립 질문 | `question` — 새 읽기 전용 CLI에 고정 자료를 넘기고 즉시 복귀 |
 
 - 수정 요청은 Step 산출물에, 요구사항 추가는 Task 에 붙는다.
-- 사람의 직접 수정은 `submit_human_revision` 명령을 거쳐 새 버전으로 기록된다.
-- 세션 안에서의 동의는 방향에 대한 동의일 뿐이다. 산출물 승인은 Gate 를 거친 특정 버전에 대해 `task review` 에서만 한다.
+- 관리형 흐름의 수정은 새 역할 Run과 새 Artifact/Gate/Decision으로 기록된다. 사용자 worktree 변경이 기록된 코드 버전과 어긋나면 재작업/검증을 거부하며 자동 reset하지 않는다.
+- 질문 대화/종료는 승인이나 수정 요청이 아니다. 최종 산출물 승인은 Gate를 거친 특정 버전으로만 한다.
 - Worker 는 Step 종료 시 "실행 중 받은 지시 요약" 을 출력한다. 사람은 검토 시 그중 Task 요구사항으로 올릴 것을 확인한다.
 - Reviewer 세션에는 개입하지 않는다(검증 독립성). 판정에 이견이 있으면 결과에 피드백을 남긴다.
 
@@ -173,7 +174,11 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - supervisor가 timeout과 취소 요청을 관찰하고, 해당 실행의 프로세스 트리 종료 뒤에만 결과를 게시한다. 사람 메시지는 Store 이벤트가 성립한 뒤 전달하며 ID로 중복을 막는다. Claude Code의 stream input을 지원하고, Codex/OpenCode의 live 입력과 Reviewer 개입은 거부한다. 백엔드 메시지/로그 형식은 어댑터의 protocol 모듈에만 있다.
 - 로그는 실행 ID에 연결한 머신별 진단 자료다. stdout/stderr/통합·정규화 로그를 각각 최대 8 MiB 보관하며 자동 삭제하거나 공유 Store로 복사하지 않는다. 출력 재시도는 기본 0이다. 설정한 재시도도 종료가 확인된 출력 위반에만 적용한다.
 - 사용자 결정에 따라 모든 역할은 신규 세션이고 resume는 미지원이다. backend session ID는 진단 연결을 위해 수집한다. 완료 Run은 수집 영수증이므로 다시 수집해도 Artifact/Gate/Decision을 추가하지 않는다.
-- 자동 Gate 명령 실행, 전체 advance, HITL 대화 화면과 승인 후 자동 다음 round는 아직 구현하지 않았다. read 검사와 CLI 설정 제한을 완전한 OS·자격증명 격리로 주장하지 않는다. OpenCode 실제 모델 연동은 별도 검증 대상이다.
+- `startWorkflow / advance / respondHitl / getWorkflow`가 역할별 수용과 재작업을 연결한다. Task의 진행 커서와 action 예약·HITL 응답은 사건과 같은 CAS commit에 기록한다. 역할 결과 수집 후 커서 갱신 전에 중단되면 완료 Run에서 복구한다. 자동 흐름이 시작된 Task에서는 개별 시작/기록 전용 전이로 HITL을 우회하지 못한다.
+- `src/verification/types.ts` 뒤의 로컬 Verifier는 Task worktree에서 선언된 시스템 명령을 비동기 실행한다. 준비 → 영구 시작 표식 → supervisor 영수증을 사용하며 unknown을 자동 재실행하지 않는다. `.devflow.yaml`의 `@명령`과 timeout을 지원한다. setup/exclusive 조율은 지원하지 않으며 선언된 경우 명시적으로 거부한다.
+- `Runner.openQuestion`은 관리형 실행과 별도다. 고정 문서/Git 자료를 독립 디렉터리에 제공하고 Windows 콘솔로 인계한 즉시 반환한다. 질문 Run·잠금·종료 감시·답변 수집은 없다. Windows/Codex 0.154.0만 지원하며 개별 native 설정 디렉터리, 읽기 전용 sandbox, 승인 금지와 플러그인/훅 제한을 적용한다. 인증 정보는 복사하지 않아 native 창에서 인증/초기 설정이 필요할 수 있다. 초기 질문·대상·인계 시도/결과만 이벤트로 남긴다.
+- 질문의 backend/model/reasoning은 `roles.question`으로 기존 전역·프로젝트·작업 유형·확정 Step·명시 입력 계층에서 선택한다(ADR-0023). 대상 Run의 AI 설정을 상속하지 않는다. 실효값/출처는 초기 질문 사건에 고정한다. 공통 defaults의 관리형 실행 옵션은 질문에서 제외하고 질문 전용 설정에는 허용하지 않는다. question은 설정 선택자이며 새로운 관리형 Run 역할이 아니다.
+- 관리형 read 사후검사는 완전한 OS 격리가 아니다. 질문 backend는 별도로 권한 제한을 검사한다. 실제 모델 질문 대화 및 OpenCode 실제 모델 연동은 미검증이다.
 
 ## 9. 여러 프로젝트와 동시 진행
 
@@ -181,10 +186,9 @@ proposed ─(사람 확인*)─▶ defined ─▶ running ─▶ checking ─▶
 - **Task 하나 = repo 하나 = worktree 하나.** Worker 와 Gate 는 그 Task 의 worktree 안에서만 실행한다. worktree 경로는 Workspace 관리자가 실행 시점에 풀어 주며 기록하지 않는다. 여러 repo 에 걸친 작업은 Task 를 나눠 발행한다.
 - 프로젝트 이름 → remote URL은 `devflow-data/projects.yaml`에, 로컬 clone·worktree 루트·remote 이름은 머신별 설정에 둔다. 등록부의 옛 기본 branch 값은 호환용으로 읽지만 새 Task의 기본값은 원격 HEAD에서 조회한다(ADR-0018).
 - Step 의 `inputs` 는 `code://<project>@<sha>` 로 대상 repo 가 아닌 등록된 프로젝트도 가리킬 수 있다. 그 참조는 읽기 전용이고, 쓰기가 가능한 Workspace 는 대상 repo 의 task branch 하나뿐이다. 참조 문법은 `schemas/step.schema.json` 이 강제한다.
-- 대상 repo 의 `.devflow.yaml`(`schemas/project-config.schema.json`)이 검증 명령을 정의한다. `exclusive: true` 인 프로젝트는 Gate 를 직렬로 실행한다.
+- 대상 repo의 `.devflow.yaml`이 검증 명령을 정의한다. `exclusive: true`의 프로젝트 간 Gate 잠금은 미구현이며 현재 Verifier는 해당 설정을 거부한다.
 - Store 파일 구현체는 같은 Task 에 대한 commit 을 Task 별 lock 으로 직렬화한다. Task ID 는 lock 없이 `mkdir` 의 원자성으로 발급하고(ADR-0011), Task 안의 ID 는 그 Task 의 lock 안에서 발급하므로 동시 commit 에서도 겹치지 않는다(ADR-0015). `devflow-data` 의 git 자동 commit 은 직렬화해야 한다(미구현).
-- 같은 repo 의 동시 수정은 막지 않는다. `advance` 가 base branch 이동을 감지해 Planner 에 알리고, Planner 가 "base 갱신 후 재검증" Step 을 만든다.
-- `task status` 는 Task 전체에 걸쳐 사람 입력을 기다리는 항목을 보여 준다. 동시 실행 수 상한은 전역 설정이다.
+- 같은 repo의 서로 다른 Task는 별도 worktree에서 진행한다. base branch 이동 감지·교차 Task 대기 화면·전역 동시 실행 수 상한은 후속 범위다.
 
 ## 10. 저장 위치
 

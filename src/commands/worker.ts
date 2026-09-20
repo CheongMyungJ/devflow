@@ -8,6 +8,7 @@ import { ExecutionError, type Runner, type RunRequest } from '../runner/types.js
 import { executionInput, executionKey, inputDigest, outputNotes, validatedOutput } from '../runner/records.js';
 import { getWorkspace } from '../queries/workspace.js';
 import { getWorkerExecution } from '../queries/worker.js';
+import { requireWorkflowAction } from './workflow-guard.js';
 import { isCanonicalId, isTaskId } from '../store/refs.js';
 import { checkKeys, openTask, rejectIf, schemaIssues } from './common.js';
 import { submitRun, completeRun, failRun } from './runs.js';
@@ -18,6 +19,7 @@ export interface SubmitWorkerInput { taskId: string; stepId: string; runId: stri
 
 /** Multi-stage command: local prepare → shared submit → external start. Never rollback an external action. */
 export async function submitWorker(ctx: WorkerCommandContext, input: SubmitWorkerInput) {
+  requireWorkflowAction(ctx, await openTask(ctx, input.taskId), 'worker', input.runId);
   if (!ctx.settings) return submitResolvedWorker(ctx, input);
   rejectIf(schemaIssues('worker-execution-input', input.input, 'input'));
   if (input.input.resolved_settings || input.input.context_packet) throw new ExecutionError('resolved_settings and context_packet are system-owned');
@@ -40,6 +42,7 @@ export async function submitWorker(ctx: WorkerCommandContext, input: SubmitWorke
   const { model, ...values } = resolved.values;
   const artifacts = (await ctx.store.list('artifact', { taskId: input.taskId, stepId: input.stepId })).items;
   if (step?.status === 'revising') {
+    if (task.workflow && workspace.location.dirty) throw new ExecutionError('Revision worktree has uncollected changes; reconcile them before starting a new Worker');
     const code = artifacts.filter(a => a.code).sort((a, b) => b.version - a.version)[0]?.code;
     if (code && (workspace.location.head !== code.head_sha || workspace.location.dirty)) throw new ExecutionError('Revision workspace differs from the recorded Artifact; reconcile current changes before starting a new Worker');
   }
@@ -50,6 +53,7 @@ export async function submitWorker(ctx: WorkerCommandContext, input: SubmitWorke
     if (bytes) previousNotes.push({ run: previous.id, text: new TextDecoder().decode(bytes) });
   }
   const packet = JSON.stringify({ task, step, artifacts, previousNotes,
+    decisions: (await ctx.store.list('decision', { taskId: input.taskId })).items,
     feedback: (await ctx.store.list('feedback', { taskId: input.taskId })).items,
     gates: (await ctx.store.list('gate_result', { taskId: input.taskId, stepId: input.stepId })).items,
     instruction: 'This is a new session. Preserve earlier commits; revisions create a new Artifact version. Report missing Context in packet_gaps.' });
@@ -88,7 +92,7 @@ async function submitResolvedWorker(ctx: WorkerCommandContext, input: SubmitWork
         if (paths.some((p) => !p || /[\\:\x00-\x1f]/.test(p) || p.split('/').some((part) => !part || part === '.' || part === '..'))) throw new ExecutionError('artifact paths must be repository-relative');
       }
     }
-    const key = run ? executionKey(run) : { taskId: input.taskId, runId: input.runId, executionId: randomUUID() };
+    const key = run ? executionKey(run) : { taskId: input.taskId, runId: input.runId, executionId: ctx.workflowActionId ?? randomUUID() };
     const request: RunRequest = { key, workspaceId: workspace.preparation.workspace_id, workdir: workspace.location.workdir,
       role: 'worker', access: 'write', prompt: input.input.prompt,
       ...(input.input.context_packet ? { context: input.input.context_packet } : {}),

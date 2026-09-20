@@ -1,0 +1,31 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { stringify } from 'yaml';
+import { expect, it } from 'vitest';
+import { entryRunner } from '../entry-helpers.js';
+import { ready, spec, until } from './helpers.js';
+import { event, step } from '../store/records.js';
+
+const entry = entryRunner('workflow');
+it('execution CLI drives versioned HITL without runId and rejects stale/unsupported actions', async () => {
+  const url = 'https://example.invalid/hitl-test.git', s = await ready(url);
+  await s.store.commit(s.task.id, { writes: [{ kind: 'step', value: { ...step(s.task.id, 'step-001', 'defined'), outputs: [{ name: 'report', type: 'document' }], verify: { semantic: ['accurate'] }, done_when: ['report exists'] } }], events: [event('step.defined', { step_id: 'step-001' })] });
+  writeFileSync(join(s.dataDir, 'projects.yaml'), stringify({ projects: { sample: { repo: url } } }));
+  const machine = entry.file(stringify({ projects: { sample: { clone: s.clone, worktree_root: s.worktreeRoot } } }));
+  const globalConfig = entry.file(stringify({ roles: { question: { backend: 'codex', model: 'gpt-5.5', reasoning: 'medium' } } }));
+  const options = ['--runner-dir', s.runnerDir, '--machine-config', machine, '--config', globalConfig, '--actor', 'human:tester'];
+  const call = (request: object) => entry.run('execution', [s.dataDir, entry.file(JSON.stringify({ taskId: s.task.id, ...request })), ...options]);
+  const parse = (request: object) => { const result = call(request); expect(result.status, result.all).toBe(0); return JSON.parse(result.stdout); };
+  expect(parse({ action: 'settings', role: 'question' })).toMatchObject({ values: { backend: 'codex', model: 'gpt-5.5', reasoning: 'medium' }, sources: { model: 'global.role' } });
+  parse({ action: 'workflow-start', config: { worker: { prompt: spec().prompt }, reviewer: { prompt: spec('success', 0, JSON.stringify({ verdict: 'pass', checks: [{ kind: 'semantic', name: 'accurate', result: 'pass' }], done_when: [{ condition: 'report exists', met: true }], comments: [], packet_gaps: [] })).prompt } } });
+  const worker = await until(async () => parse({ action: 'advance' }), value => value.target?.role === 'worker');
+  expect(parse({ action: 'hitl' }).choices).toEqual(['승인', '수정 요청', '질문 CLI 열기']);
+  expect(call({ action: 'question', target: worker.target, text: 'why?', backend: 'fake' }).all).toContain('unsupported');
+  expect(parse({ action: 'hitl' }).target).toEqual(worker.target);
+  parse({ action: 'respond', target: worker.target, response: 'approve' });
+  const reviewer = await until(async () => parse({ action: 'advance' }), value => value.target?.role === 'reviewer');
+  expect(reviewer.target.artifact_refs).toEqual(worker.target.artifact_refs);
+  expect(call({ action: 'respond', target: worker.target, response: 'revise', text: 'old result' }).status).toBe(1);
+  expect(parse({ action: 'respond', target: reviewer.target, response: 'approve' }).target.role).toBe('artifact');
+  expect((await s.store.list('run', { taskId: s.task.id })).items).toHaveLength(2);
+});

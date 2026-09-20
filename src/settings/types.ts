@@ -1,10 +1,11 @@
-import type { ExecutionConfig, ExecutionSettings, ResolvedExecutionSettings, Run } from '../types/generated/index.js';
+import type { ExecutionConfig, ExecutionSettings, ResolvedExecutionSettings, ProjectConfigDevflowYaml } from '../types/generated/index.js';
 
 export interface ExecutionSettingsSource {
+  project?(workdir: string): Promise<ProjectConfigDevflowYaml | undefined>;
   read(workdir?: string): Promise<{ global?: ExecutionConfig; project?: ExecutionConfig }>;
 }
 export interface SettingsSelection {
-  role: Run['role'];
+  role: keyof NonNullable<ExecutionConfig['roles']>;
   taskType?: string;
   step?: ExecutionSettings;
   explicit?: ExecutionSettings;

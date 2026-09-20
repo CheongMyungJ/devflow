@@ -17,6 +17,8 @@ export type WorkspaceInspection =
   | { state: 'blocked'; reason: string };
 
 export interface Workspace extends BaseBranchResolver {
+  /** Read immutable Git objects, never the moving worktree. No paths leave this adapter. */
+  snapshot?(repo: string, sha: string): Promise<Array<{ path: string; base64: string }>>;
   /** 충돌을 확인하고 기준 branch를 SHA로 해석한다. 원격이면 반드시 fetch한다. */
   resolveBase(task: Task): Promise<string>;
   /** 해당 요청의 작업공간을 준비한다. 겹친 실행은 기다리지 않고 오류로 돌려준다. */

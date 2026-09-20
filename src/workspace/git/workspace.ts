@@ -6,7 +6,7 @@ import type { Task, WorkspacePreparation } from '../../types/generated/index.js'
 import { WorkspaceError } from '../errors.js';
 import { isBranchName } from '../refs.js';
 import type { Workspace, WorkspaceInspection, WorkspaceLocation } from '../types.js';
-import { git } from './git.js';
+import { git, gitBytes } from './git.js';
 import type { ProjectCatalog, ProjectLocation } from './settings.js';
 
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -36,6 +36,23 @@ interface WorktreeEntry { path: string; branch?: string }
 /** 한 호스트의 로컬 Git 구현. force/reset/prune/remove로 기존 작업을 복구하지 않는다. */
 export class GitWorkspace implements Workspace {
   constructor(private readonly catalog: ProjectCatalog) {}
+
+  async snapshot(repo: string, sha: string) {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) throw new WorkspaceError('configuration', 'Snapshot requires a full commit SHA');
+    const project = await this.project(repo);
+    if (await git(project.clone, ['rev-parse', '--verify', `${sha}^{commit}`]) !== sha) throw new WorkspaceError('configuration', 'Snapshot SHA must identify a commit');
+    const tree = (await gitBytes(project.clone, ['ls-tree', '-r', '-z', sha])).toString('utf8').split('\0').filter(Boolean);
+    const files: Array<{ path: string; base64: string }> = []; let size = 0;
+    for (const entry of tree) {
+      const match = /^(\d+) blob ([0-9a-f]+)\t([\s\S]+)$/.exec(entry);
+      if (!match || !['100644', '100755'].includes(match[1]!)) throw new WorkspaceError('configuration', 'Question snapshots do not support symlinks or submodules');
+      const bytes = await gitBytes(project.clone, ['cat-file', 'blob', match[2]!]);
+      size += bytes.length;
+      if (size > 32 * 1024 * 1024 || files.length >= 10000) throw new WorkspaceError('configuration', 'Question snapshot exceeds the supported size');
+      files.push({ path: match[3]!, base64: bytes.toString('base64') });
+    }
+    return files;
+  }
 
   async defaultBranch(repo: string): Promise<string> {
     const url = await this.catalog.remoteUrl(repo);

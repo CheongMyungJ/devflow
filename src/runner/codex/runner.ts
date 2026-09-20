@@ -5,13 +5,18 @@ import { LocalRunner } from '../local/runner.js';
 import { cliVersion, resolveCli } from '../local/cli.js';
 import { workerPrompt } from '../local/prompt.js';
 import type { CliCommand } from '../local/adapter.js';
+import type { QuestionRequest } from '../types.js';
+import { openCodexQuestion } from './question.js';
+import { validateCodexModelSettings } from './settings.js';
 
 export class CodexRunner extends LocalRunner {
+  private readonly questionRoot: string;
+  private readonly questionCli: CliCommand;
   constructor(root: string, cli: CliCommand = resolveCli('codex', '@openai/codex')) {
     super(root, { id: 'codex', version: cliVersion(cli),
       capabilities: { supportsResume: false, supportsLiveMessage: false },
       validate(request) {
-        if (request.reasoning && (!request.model || !/^(gpt-5|gpt-6|o[134])/.test(request.model) || !['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(request.reasoning))) throw new ExecutionError('unsupported Codex model/reasoning combination');
+        validateCodexModelSettings(request);
         if (request.isolation === 'strict') throw new ExecutionError('strict environment isolation is not verified for Codex; project isolation is available');
       },
       launch(request, dir) {
@@ -31,5 +36,8 @@ export class CodexRunner extends LocalRunner {
           protocolModule: fileURLToPath(new URL('./protocol.mjs', import.meta.url)) };
       },
     });
+    this.questionRoot = root;
+    this.questionCli = cli;
   }
+  openQuestion(request: QuestionRequest) { return openCodexQuestion(this.questionRoot, this.questionCli, this.version, request); }
 }

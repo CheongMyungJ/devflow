@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/hitl-target.schema.json",
+  "title": "HitlTarget",
+  "description": "사람이 확인할 불변 결과의 식별자. 응답은 이 객체 전체와 현재 pending이 같을 때만 허용한다.",
+  "type": "object", "additionalProperties": false,
+  "required": ["id", "role", "artifact_refs"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "role": { "enum": ["planner", "worker", "reviewer", "artifact"] },
+    "run_id": { "type": "string", "pattern": "^R-[0-9]{3,}$" },
+    "step_id": { "type": "string", "pattern": "^step-[0-9]{3,}$" },
+    "decision_id": { "type": "string", "pattern": "^D-[0-9]{3,}$" },
+    "gate_id": { "type": "string", "pattern": "^G-[0-9]{3,}$" },
+    "artifact_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "workflow.schema.json#/$defs/artifactRef" } }
+  },
+  "allOf": [
+    { "if": { "properties": { "role": { "const": "planner" } } }, "then": { "required": ["run_id", "decision_id"] } },
+    { "if": { "properties": { "role": { "const": "worker" } } }, "then": { "required": ["run_id", "step_id"], "properties": { "artifact_refs": { "minItems": 1 } } } },
+    { "if": { "properties": { "role": { "const": "reviewer" } } }, "then": { "required": ["run_id", "step_id", "gate_id"], "properties": { "artifact_refs": { "minItems": 1 } } } },
+    { "if": { "properties": { "role": { "const": "artifact" } } }, "then": { "required": ["step_id", "gate_id"], "properties": { "artifact_refs": { "minItems": 1 } } } }
+  ]
+}

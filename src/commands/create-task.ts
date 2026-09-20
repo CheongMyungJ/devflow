@@ -9,7 +9,7 @@ import { isBranchName } from '../workspace/refs.js';
 import { recordedAt } from './time.js';
 
 /** 발행 시점에 시스템이 채우는 것(id, status, created_at, created_by, target.task_branch)을 뺀 Task. */
-export type CreateTaskInput = Omit<Task, 'id' | 'status' | 'created_at' | 'created_by' | 'target'> & {
+export type CreateTaskInput = Omit<Task, 'id' | 'status' | 'created_at' | 'created_by' | 'target' | 'workflow'> & {
   target: Omit<Task['target'], 'task_branch' | 'base_branch'> & { base_branch?: string };
   /** task branch 이름에 붙일 짧은 설명. `task/T-0001-<slug>`. 없으면 `task/T-0001`. */
   branchSlug?: string;
@@ -18,7 +18,7 @@ export type CreateTaskInput = Omit<Task, 'id' | 'status' | 'created_at' | 'creat
 };
 
 /** 입력에 둘 수 없는 것 — 도구가 채운다(docs/design/commands.md 6.2). 타입이 막지만 입구는 사람이 쓴 파일을 그대로 넘긴다. */
-const TOOL_FILLED = ['id', 'status', 'created_at', 'created_by'] as const;
+const TOOL_FILLED = ['id', 'status', 'created_at', 'created_by', 'workflow'] as const;
 const CREATED_DATA_KEYS = ['backlog', 'intake', 'note'];
 
 function slugify(text: string): string {

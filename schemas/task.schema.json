@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": ["id", "title", "type", "goal", "acceptance_criteria", "target", "status", "created_at"],
   "properties": {
+    "workflow": { "$ref": "workflow.schema.json", "description": "Orchestrator 전용 진행 상태. Task 발행 입력에는 쓸 수 없다." },
     "id": { "type": "string", "pattern": "^T-[0-9]{4,}$" },
     "title": { "type": "string" },
     "type": {

@@ -50,6 +50,8 @@
 
 ## 출력
 
+역할별 HITL의 수정 요청이 Context에 있으면 원래 Decision과 요청을 함께 읽고 새 제안을 작성한다. 이전 제안을 덮어쓰거나 직접 확정하지 않는다. 관리형 흐름에서는 `planner-output.schema.json`에 맞춘 JSON을 쓰며 식별자·시각·대체 관계는 시스템이 채운다. 자동 실행할 `next_step`은 Skill 이름만 주지 말고 전체 Step 정의로 펼친다.
+
 `schemas/decision.schema.json` 을 만족하는 Decision. 시스템이 스키마로 검증하고, 맞지 않으면 받아들이지 않는다. 틀리기 쉬운 것:
 
 - 필수 필드는 `id`, `task_id`, `action`, `rationale`, `created_at`(UTC 의 date-time, 예: `2026-01-01T00:00:00Z`)과 action 에 딸린 필드 하나다. 정의되지 않은 필드를 더하지 않는다(딸린 필드의 안쪽에도).
