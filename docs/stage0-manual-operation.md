@@ -169,3 +169,28 @@ status는 해당 command가 엔티티·이벤트를 함께 쓴다. `validate-dat
 8. 검증한 기록·운영 문서를 commit하고 승인된 repo를 push한다. 원격·로컬 SHA와 깨끗한 상태를 확인해 보고하고 실행 감시는 중지한다.
 
 새 Task는 사람이 backlog에서 고르고 두 단계 Intake로 발행한다. 다음 후보 추천은 새 Task 발행 승인이 아니다.
+
+## fake Worker 실행 시험 (ADR-0019)
+
+실제 운영 devflow-data 대신 **별도 테스트 데이터와 임시 대상 저장소**에서 시험한다. Task 발행·Step 정의·Workspace 준비는 앞 절의 입구를 사용한다. 아래 예는 `step-001`이 defined이고 outputs가 `plan` 문서 하나이며, 다음 Run ID가 `R-001`인 경우다. 이미 Planner 등 Run을 기록했다면 다음 ID를 사용한다. fake는 코드 변경/commit을 만들지 않는다.
+
+공유 데이터 밖에 `worker-input.yaml`을 만든다. artifacts는 해당 Step의 outputs와 정확히 맞아야 한다. code/repo 출처가 필요하면 기존 complete-run 규약대로 실제 SHA/저장소 상대 경로를 명시한다.
+
+```yaml
+prompt: '{"mode":"success","delayMs":5000,"output":"{\"summary\":\"fake Worker 완료\",\"packet_gaps\":[],\"work_notes\":\"# 시험 작업 노트\"}"}'
+artifacts:
+  - name: plan
+    source: blob:work-notes
+```
+
+```powershell
+npm run submit-worker -- C:\temp\demo-data T-0001 step-001 R-001 C:\temp\worker-input.yaml --machine-config C:\temp\machine.yaml --runner-dir C:\temp\runner-state
+npm run worker-status -- C:\temp\demo-data T-0001 R-001 --runner-dir C:\temp\runner-state
+npm run collect-worker -- C:\temp\demo-data T-0001 R-001 --runner-dir C:\temp\runner-state
+```
+
+submit은 완료를 기다리지 않는다. 제출한 터미널/호출자를 종료한 뒤에도 같은 머신의 다른 프로세스에서 status/collect할 수 있다. 실행 중이면 나중에 collect를 다시 호출한다. 수집 후 `collected: true`, `run.status: completed`와 Artifact를 확인한다. 같은 입력으로 submit을 재호출하거나 collect를 반복해도 Worker/Artifact/이벤트는 늘지 않는다. query/collect는 머신 Workspace 설정 없이도 실행 기록으로 회수한다. runner-dir는 모든 호출에 같은 값을 주고 공유 데이터와 Task worktree 밖에 둔다.
+
+실패 시험은 새로 실행 가능한 Step/Run에서 prompt의 mode를 `fail` 또는 `crash`로 바꾼다. `success`의 output을 `{"summary":"packet_gaps 누락"}`으로 주면 invalid_output이다. `missing_output`은 파일 없이 exit 0으로 끝나는 경우다. `output_then_wait`는 출력 파일을 먼저 쓰고 delayMs 동안 기다려, 출력만 있고 종료 영수증은 없는 상태를 시험한다. 이미 제출한 Run의 입력을 바꾸면 거부되므로 새 ID가 필요하다. 자동 출력 재시도는 없다.
+
+명령이 0으로 끝났다는 것은 관찰/요청이 처리되었다는 뜻이다. 실행 성공 여부는 JSON의 `execution.state`, 수집 여부는 `collected`를 본다. unknown은 자동 실패/재실행하지 않으며 응답의 reason/action과 [수동 확인 절차](design/runner.md)를 따른다. `ExecutionError`는 로컬 실행 또는 공유 기록이 남았을 수 있음을 의미한다. resume·실행 중 메시지·stream·cancel·read 격리는 지원하지 않는다.

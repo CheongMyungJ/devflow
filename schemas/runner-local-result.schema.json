@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/runner-local-result.schema.json",
+  "title": "RunnerLocalResult",
+  "description": "Supervisor가 종료를 확인한 뒤 원자적으로 게시하는 머신별 결과. 공유 Run 완료 기록과는 별개다.",
+  "type": "object", "additionalProperties": false, "required": ["key", "outcome"],
+  "properties": {
+    "key": { "$ref": "runner-local-request.schema.json#/properties/key", "description": "요청과 일치해야 하는 전체 식별자." },
+    "outcome": {
+      "description": "프로세스 종료 증거. completed의 원문은 시스템이 worker-output으로 별도 검증한다.",
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["state", "workerOutput"], "properties": {
+          "state": { "const": "completed", "description": "Worker가 exit 0으로 종료하고 출력 파일을 읽었다." },
+          "workerOutput": { "type": "string", "description": "출력 파일 원문 스냅샷. 파일이 나중에 바뀌어도 결과는 바뀌지 않는다." }
+        } },
+        { "type": "object", "additionalProperties": false, "required": ["state", "kind", "reason"], "properties": {
+          "state": { "const": "failed", "description": "확인된 실패." },
+          "kind": { "enum": ["process_exit", "invalid_output"], "description": "비정상 종료 또는 종료 후 출력 파일 누락." },
+          "reason": { "type": "string", "minLength": 1, "description": "로컬 경로를 제외한 실패 이유." }
+        } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "devflow/worker-execution-input.schema.json",
+  "title": "WorkerExecutionInput",
+  "description": "호출자가 명시하는 Worker 입력. 실행마다 고정해 Run 소유 blob에 보관한다. 로컬 파일 위치는 받지 않는다.",
+  "type": "object", "additionalProperties": false, "required": ["prompt", "artifacts"],
+  "properties": {
+    "prompt": { "type": "string", "minLength": 1, "description": "역할에 전달할 전체 입력. fake에서는 fake-worker-input JSON 문자열이다. Context 자동 조립은 하지 않는다." },
+    "artifacts": {
+      "type": "array", "description": "완료 수집 시 completeRun에 전달할 명시적 산출물 출처. 실행 시작 전에 고정한다.",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["name", "source"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "description": "Step outputs에 선언한 이름." },
+          "source": { "type": "string", "pattern": "^(blob:work-notes|code:([0-9a-f]{40}|[0-9a-f]{64})\\.\\.([0-9a-f]{40}|[0-9a-f]{64})|repo:([0-9a-f]{40}|[0-9a-f]{64})\\.\\.([0-9a-f]{40}|[0-9a-f]{64}):.+)$", "description": "completeRun의 논리 출처. repo 경로는 저장소 상대 경로이며 로컬 절대 경로를 넣지 않는다." }
+        }
+      }
+    }
+  }
+}

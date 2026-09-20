@@ -2,7 +2,7 @@
 // Store 의 파일 구현체를 여는 곳은 scripts/ 에서 이 모듈과 검증 스크립트 check-store-read 뿐이다(AGENTS.md 1·2번 — tests/architecture.test.ts).
 // 빌드는 ./build.mjs 가 준비한다.
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { prepareBuild, REPO_ROOT } from './build.mjs';
 
@@ -17,10 +17,10 @@ function devflowHead() {
 
 /**
  * 데이터 디렉터리 하나에 대한 command 와 CommandContext 를 만든다. Store 는 프로세스당 하나(commands.md 5절).
- * @param {{ dataDir: string, actor?: string, machineConfig?: string }} options actor 는 `human:<id>` 또는 `system`(기본)
+ * @param {{ dataDir: string, actor?: string, machineConfig?: string, runnerDir?: string }} options actor 는 `human:<id>` 또는 `system`(기본)
  * @returns {Promise<{ commands: typeof import('../../src/commands/index.js'), queries: typeof import('../../src/queries/index.js'), ctx: import('../../src/commands/index.js').WorkspaceCommandContext }>}
  */
-export async function assemble({ dataDir, actor = 'system', machineConfig = process.env.DEVFLOW_MACHINE_CONFIG }) {
+export async function assemble({ dataDir, actor = 'system', machineConfig = process.env.DEVFLOW_MACHINE_CONFIG, runnerDir }) {
   const { dir } = prepareBuild();
   const load = (rel) => import(pathToFileURL(join(dir, rel)).href);
   const commands = await load('src/commands/index.js');
@@ -29,6 +29,12 @@ export async function assemble({ dataDir, actor = 'system', machineConfig = proc
   const { GitWorkspace } = await load('src/workspace/git/workspace.js');
   const workspace = new GitWorkspace(new FileProjectCatalog(join(dataDir, 'projects.yaml'), machineConfig));
   const ctx = { store: new FileStore({ dataDir }), clock: commands.systemClock, actor, systemSha: devflowHead(), baseBranches: workspace, workspace };
+  if (runnerDir !== undefined) {
+    const rel = relative(resolve(dataDir), resolve(runnerDir));
+    if (rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))) throw new Error('runner-dir must be outside the shared data directory');
+    const { FakeRunner } = await load('src/runner/fake/runner.js');
+    ctx.runner = new FakeRunner(runnerDir);
+  }
   const queries = await load('src/queries/index.js');
   return { commands, queries, ctx };
 }

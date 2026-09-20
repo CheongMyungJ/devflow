@@ -106,7 +106,7 @@ export async function report(work) {
     const lines = await work();
     for (const line of [].concat(lines)) console.log(line);
   } catch (error) {
-    if (error?.name === 'WorkspacePreparationError') {
+    if (error?.name === 'WorkspacePreparationError' || error?.name === 'ExecutionError') {
       console.error(`${error.name}: ${error.message}`);
     } else if (error?.name === 'RejectedInputError') {
       console.error('rejected — 아무것도 기록하지 않았다:');

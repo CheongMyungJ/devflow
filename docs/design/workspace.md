@@ -35,4 +35,4 @@
 
 ## 검증
 
-`tests/workspace/`는 실제 bare 원격·clone, 로컬 변경 보존, 설정 검증, 출처 선택, fetch 실패, 명령 입구, 단계 경계에서 자식 프로세스 강제 종료를 검사한다. 정상 단계 경계의 복구와 Git 작업 도중 불완전 상태의 수동 조치를 별도로 검증한다. 자동 clone·의존성 설치·네트워크 인증 준비·Runner 실행·worktree 정리는 하지 않는다.
+`tests/workspace/`는 실제 bare 원격·clone, 로컬 변경 보존, 설정 검증, 출처 선택, fetch 실패, 명령 입구, 단계 경계에서 자식 프로세스 강제 종료를 검사한다. 정상 단계 경계의 복구와 Git 작업 도중 불완전 상태의 수동 조치를 별도로 검증한다. 자동 clone·의존성 설치·네트워크 인증 준비·worktree 정리는 하지 않는다. 준비된 위치에서 fake Worker를 실행하는 경로는 별도 [Runner 계약](runner.md)과 `tests/runner/`에서 다룬다.
